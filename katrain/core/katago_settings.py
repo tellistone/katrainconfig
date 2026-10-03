@@ -10,6 +10,7 @@ Overrides are stored per opponent in the `ai_katago` config section as {strategy
 is missing from that dict uses KaTrain's engine setting or KataGo's own default.
 """
 
+import math
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
@@ -32,7 +33,6 @@ class KataGoParam:
     min: Optional[float] = None
     max: Optional[float] = None
     choices: Sequence[str] = ()
-    zero_allowed: bool = False  # 0 is valid even though it is below `min` (e.g. 0 disables the feature)
 
     def parse(self, raw: Any) -> Any:
         """Convert a value from the UI or config into what KataGo expects. Raises ValueError when invalid."""
@@ -57,15 +57,13 @@ class KataGoParam:
             return text
         if isinstance(raw, bool):
             raise ValueError(f"{self.name} must be a number")
+        value = float(raw)
+        if not math.isfinite(value):  # NaN is not valid JSON, and would leave the query unanswered
+            raise ValueError(f"{self.name} must be a finite number")
         if self.kind == "int":
-            number = float(raw)
-            if number != int(number):
+            if value != int(value):
                 raise ValueError(f"{self.name} must be a whole number")
-            value = int(number)
-        else:
-            value = float(raw)
-        if self.zero_allowed and value == 0:
-            return value
+            value = int(value)
         if (self.min is not None and value < self.min) or (self.max is not None and value > self.max):
             raise ValueError(f"{self.name} must be between {self.min:g} and {self.max:g}")
         return value
@@ -75,8 +73,7 @@ class KataGoParam:
             return " / ".join(("true", "false") if self.kind == "bool" else self.choices)
         if self.kind == "str":
             return "text"
-        text = f"{self.min:g} or more" if self.max >= MAX_INT else f"{self.min:g} to {self.max:g}"
-        return f"0 or {text}" if self.zero_allowed else text
+        return f"{self.min:g} or more" if self.max >= MAX_INT else f"{self.min:g} to {self.max:g}"
 
     def default_text(self) -> str:
         if self.default is None:
@@ -280,7 +277,11 @@ def katago_param_groups() -> List[Tuple[str, List[KataGoParam]]]:
 def clean_katago_overrides(overrides: Optional[Dict], log=None) -> Dict[str, Any]:
     """Drop unknown or invalid entries from stored overrides, so a hand-edited config cannot break the AI."""
     cleaned = {}
-    for name, raw in (overrides or {}).items():
+    if not isinstance(overrides, dict):
+        if overrides and log:
+            log(f"Ignoring KataGo settings {overrides!r}: not a dictionary")
+        return cleaned
+    for name, raw in overrides.items():
         param = KATAGO_PARAMS_BY_NAME.get(name)
         if param is None:
             if log:

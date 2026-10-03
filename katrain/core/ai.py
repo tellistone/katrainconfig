@@ -450,7 +450,7 @@ class HandicapStrategy(AIStrategy):
             {"playoutDoublingAdvantage": pda, "playoutDoublingAdvantagePla": "BLACK"}
         )
 
-        if not handicap_analysis:
+        if not handicap_analysis or not handicap_analysis["moveInfos"]:  # no moves with very few visits
             self.game.katrain.log(
                 "[HandicapStrategy] Error getting handicap-based move, falling back to DefaultStrategy", OUTPUT_ERROR
             )
@@ -491,7 +491,7 @@ class AntimirrorStrategy(AIStrategy):
         self.game.katrain.log("[AntimirrorStrategy] Requesting analysis with antiMirror=True", OUTPUT_DEBUG)
         antimirror_analysis = self.request_analysis({"antiMirror": True})
 
-        if not antimirror_analysis:
+        if not antimirror_analysis or not antimirror_analysis["moveInfos"]:  # no moves with very few visits
             self.game.katrain.log(
                 "[AntimirrorStrategy] Error getting antimirror move, falling back to DefaultStrategy", OUTPUT_ERROR
             )
@@ -882,6 +882,13 @@ class SimpleOwnershipStrategy(OwnershipBaseStrategy):
             aimove = moves_with_settledness[0][0]
 
             self.game.katrain.log(f"[SimpleOwnershipStrategy] Selected move: {aimove.gtp()}", OUTPUT_DEBUG)
+        elif self.katago_settings:  # e.g. too few visits for any move to get its own ownership
+            self.game.katrain.log(
+                f"[SimpleOwnershipStrategy] No moves with ownership info using KataGo settings {self.katago_settings}, "
+                "falling back to DefaultStrategy",
+                OUTPUT_ERROR,
+            )
+            return self.delegate(DefaultStrategy, self.settings).generate_move()
         else:
             error_msg = "No moves found - are you using an older KataGo with no per-move ownership info?"
             self.game.katrain.log(f"[SimpleOwnershipStrategy] Error: {error_msg}", OUTPUT_ERROR)
@@ -985,6 +992,13 @@ class SettleStonesStrategy(OwnershipBaseStrategy):
             aimove = moves_with_settledness[0][0]
 
             self.game.katrain.log(f"[SettleStonesStrategy] Selected move: {aimove.gtp()}", OUTPUT_DEBUG)
+        elif self.katago_settings:  # e.g. too few visits for any move to get its own ownership
+            self.game.katrain.log(
+                f"[SettleStonesStrategy] No moves with ownership info using KataGo settings {self.katago_settings}, "
+                "falling back to DefaultStrategy",
+                OUTPUT_ERROR,
+            )
+            return self.delegate(DefaultStrategy, self.settings).generate_move()
         else:
             error_msg = "No moves found - are you using an older KataGo with no per-move ownership info?"
             self.game.katrain.log(f"[SettleStonesStrategy] Error: {error_msg}", OUTPUT_ERROR)
@@ -1598,8 +1612,8 @@ class TenukiStrategy(PickBasedStrategy):
 class HumanStyleStrategy(AIStrategy):
     """Strategy that imitates human play at various skill levels"""
 
-    def __init__(self, game: Game, ai_settings: Dict):
-        super().__init__(game, ai_settings)
+    def __init__(self, game: Game, ai_settings: Dict, *args, **kwargs):
+        super().__init__(game, ai_settings, *args, **kwargs)
         self.game.katrain.log("[HumanStyleStrategy] Initializing HumanStyleStrategy", OUTPUT_DEBUG)
         self.game.katrain.log(f"[HumanStyleStrategy] AI settings: {ai_settings}", OUTPUT_DEBUG)
 

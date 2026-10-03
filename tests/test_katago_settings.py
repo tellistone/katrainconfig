@@ -1,5 +1,8 @@
+from types import SimpleNamespace
+
 import pytest
 
+from katrain.core.ai import STRATEGY_REGISTRY
 from katrain.core.katago_settings import (
     KATAGO_PARAMS,
     KATAGO_PARAMS_BY_NAME,
@@ -24,7 +27,15 @@ class TestKataGoSettings:
         assert params["rootPolicyTemperature"].parse("1.5") == 1.5
         assert params["useLcbForSelection"].parse("false") is False
         assert params["playoutDoublingAdvantagePla"].parse("W") == "W"
-        for name, bad in [("maxVisits", "0"), ("maxVisits", "2.5"), ("cpuctExploration", "11"), ("antiMirror", "x")]:
+        for name, bad in [
+            ("maxVisits", "0"),
+            ("maxVisits", "2.5"),
+            ("maxVisits", "inf"),
+            ("cpuctExploration", "11"),
+            ("cpuctExploration", "nan"),
+            ("noisePruningCap", "inf"),
+            ("antiMirror", "x"),
+        ]:
             with pytest.raises(ValueError):
                 params[name].parse(bad)
 
@@ -38,3 +49,14 @@ class TestKataGoSettings:
         assert settings == {"wideRootNoise": 0.1}  # fpuParentWeight only applies without fpuParentWeightByVisitedPolicy
         _, settings = split_katago_overrides({"fpuParentWeightByVisitedPolicy": False, "fpuParentWeight": 0.5})
         assert settings == {"fpuParentWeightByVisitedPolicy": False, "fpuParentWeight": 0.5}
+
+    def test_clean_ignores_malformed_section(self):
+        assert clean_katago_overrides(["maxVisits", 30]) == {}
+        assert clean_katago_overrides(None) == {}
+
+    def test_every_strategy_accepts_katago_settings(self):
+        game = SimpleNamespace(engines={}, katrain=SimpleNamespace(log=lambda *args: None), current_node=None)
+        for strategy_class in set(STRATEGY_REGISTRY.values()):
+            strategy = strategy_class(game, {}, {"maxVisits": 30, "wideRootNoise": 0.1})
+            assert strategy.katago_visits == 30
+            assert strategy.katago_overrides == {"wideRootNoise": 0.1}
