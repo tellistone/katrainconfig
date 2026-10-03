@@ -236,6 +236,7 @@ class GameNode(BaseGoNode["GameNode"]):
         additional_moves: bool = False,
         region_of_interest=None,
         partial_result: bool = False,
+        update_parent: bool = True,
     ):
         if refine_move:
             pvtail = analysis_json["moveInfos"][0]["pv"] if analysis_json["moveInfos"] else []
@@ -255,7 +256,7 @@ class GameNode(BaseGoNode["GameNode"]):
             self.analysis["policy"] = analysis_json.get("policy")
             if not additional_moves and not region_of_interest:
                 self.analysis["root"] = analysis_json["rootInfo"]
-                if self.parent and self.move:
+                if update_parent and self.parent and self.move:
                     analysis_json["rootInfo"]["pv"] = [self.move.gtp()] + (
                         analysis_json["moveInfos"][0]["pv"] if analysis_json["moveInfos"] else []
                     )

@@ -965,13 +965,94 @@
         id: options_grid
         rows: root.max_options
         cols: 2
-    AnchorLayout:
+    BoxLayout:
         size_hint: 1, 1.5
-        AutoSizedRoundedRectangleButton:
-            padding_x: 15
-            size_hint: None,0.5
-            text: i18n._("update ai settings")
-            on_press: root.update_config(True)
+        orientation: 'horizontal'
+        AnchorLayout:
+            AutoSizedRoundedRectangleButton:
+                padding_x: 15
+                size_hint: None,0.5
+                text: root.katago_button_text
+                on_press: root.open_katago_settings()
+        AnchorLayout:
+            AutoSizedRoundedRectangleButton:
+                padding_x: 15
+                size_hint: None,0.5
+                text: i18n._("update ai settings")
+                on_press: root.update_config(True)
+
+<KataGoSettingsGroupLabel>:
+    size_hint_y: None
+    height: dp(48)
+    bold: True
+    font_size: sp(Theme.DESC_FONT_SIZE)
+    text_size: self.width, None
+    halign: 'left'
+    valign: 'center'
+    color: Theme.TEXT_COLOR
+
+<KataGoSettingsNameLabel>:
+    size_hint_y: None
+    height: max(dp(48), self.texture_size[1] + dp(8))
+    markup: True
+    font_size: sp(14)
+    text_size: self.width, None
+    halign: 'left'
+    valign: 'center'
+
+<KataGoSettingsDescriptionLabel>:
+    size_hint_y: None
+    height: max(dp(48), self.texture_size[1] + dp(8))
+    font_size: sp(13)
+    text_size: self.width, None
+    halign: 'left'
+    valign: 'center'
+
+<KataGoSettingsPopup>:
+    orientation: 'vertical'
+    rows_grid: rows_grid
+    spacing: dp(6)
+    DescriptionLabel:
+        size_hint: 1, None
+        height: dp(56)
+        font_size: sp(Theme.DESC_FONT_SIZE) * 0.8
+        text: i18n._(root.strategy) + ": " + i18n._("katago settings help")
+    ScrollView:
+        do_scroll_x: False
+        bar_width: dp(8)
+        scroll_type: ['bars', 'content']
+        GridLayout:
+            id: rows_grid
+            cols: 3
+            size_hint_y: None
+            height: self.minimum_height
+            spacing: dp(4), 0
+            padding: dp(8), 0
+            cols_minimum: {0: dp(280), 1: dp(200), 2: dp(420)}
+    Label:
+        size_hint: 1, None
+        height: dp(28) if root.error_message else 0
+        text: root.error_message
+        color: 0.9, 0.3, 0.3, 1
+        font_size: sp(14)
+        text_size: self.width, None
+        halign: 'center'
+    BoxLayout:
+        size_hint: 1, None
+        height: dp(56)
+        orientation: 'horizontal'
+        AnchorLayout:
+            AutoSizedRoundedRectangleButton:
+                padding_x: 15
+                size_hint: None, 0.75
+                text: i18n._("reset katago settings")
+                on_press: root.reset()
+        AnchorLayout:
+            AutoSizedRoundedRectangleButton:
+                padding_x: 15
+                size_hint: None, 0.75
+                text: i18n._("save katago settings")
+                on_press: root.save()
 
 <EngineRecoveryPopup>:
     orientation: 'vertical'

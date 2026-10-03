@@ -49,3 +49,22 @@ class TestAI:
             settings = katrain.config(f"ai/{strategy}")
             rank = ai_rank_estimation(strategy, settings)
             assert -20 <= rank <= 9
+
+    @pytest.mark.skipif(os.environ.get("CI", "").lower() == "true", reason="GH actions has no OpenCL")
+    def test_ai_strategies_with_katago_settings(self):
+        katrain = KaTrainBase(force_package_config=True, debug_level=0)
+        engine = KataGoEngine(katrain, katrain.config("engine"))
+        katago_settings = {"maxVisits": 16, "rootPolicyTemperature": 1.5, "useLcbForSelection": False, "bogus": 1}
+
+        game = Game(katrain, engine)
+        for strategy in AI_STRATEGIES:
+            if strategy in [AI_HUMAN, AI_PRO]:
+                continue
+            node = game.current_node
+            settings = katrain.config(f"ai/{strategy}")
+            move, played_node = generate_ai_move(game, strategy, settings, katago_settings)
+            katrain.log(f"Testing strategy {strategy} with KataGo settings -> {move}", OUTPUT_INFO)
+            assert move.coords is not None
+            assert played_node == game.current_node
+            assert played_node.parent is node
+            assert "KataGo settings: maxVisits=16, rootPolicyTemperature=1.5" in played_node.ai_thoughts
