@@ -122,3 +122,20 @@ class TestAngryHuman:
         strategy.human_engine = human
         with pytest.raises(AnalysisDiscardedException):
             strategy.request_analysis({})
+
+    def test_human_search_settings_need_human_model(self):
+        sent = []
+        strategy, _ = self._strategy()
+
+        def request(*args, extra_settings=None, callback=None, **kwargs):
+            sent.append(extra_settings)
+            callback({"moveInfos": []}, False)
+
+        for command in [["katago", "analysis", "-model", "m"], ["katago", "-model", "h", "-human-model", "h"]]:
+            strategy.human_engine = SimpleNamespace(
+                query_generation=0, command=command, request_analysis=request, check_alive=lambda **kwargs: True
+            )
+            strategy.katago_overrides = {"humanSLCpuctExploration": 2.0, "humanSLProfile": "rank_1d"}
+            strategy.request_analysis({})
+        assert "humanSLCpuctExploration" not in sent[0] and sent[0]["humanSLProfile"] == "rank_1d"
+        assert sent[1]["humanSLCpuctExploration"] == 2.0

@@ -307,11 +307,25 @@ class AIStrategy(ABC):
         )
 
     def request_analysis(
-        self, extra_settings: Dict, ownership: Optional[bool] = False, allow_moves: Optional[List[str]] = None
+        self,
+        extra_settings: Dict,
+        ownership: Optional[bool] = False,
+        allow_moves: Optional[List[str]] = None,
+        visits: Optional[int] = None,
     ) -> Optional[Dict]:
         """Helper to request additional analysis with custom settings, on top of the opponent's KataGo settings.
         With allow_moves, only those moves are searched for the player to move."""
+        engine = self.search_engine()
         extra_settings = {**extra_settings, **self.own_search_settings(), **self.katago_overrides}
+        command = getattr(engine, "command", None)  # unknown for remote engines
+        if command is not None and "-human-model" not in command:
+            # KataGo rejects the whole query for these without -human-model, so leave them out instead
+            dropped = [k for k in extra_settings if k.startswith("humanSL") and k != "humanSLProfile"]
+            if dropped:
+                self.game.katrain.log(
+                    f"[{self.strategy_name}] Ignoring {', '.join(dropped)}: they need a human-like model", OUTPUT_ERROR
+                )
+                extra_settings = {k: v for k, v in extra_settings.items() if k not in dropped}
         self.game.katrain.log(
             f"[{self.strategy_name}] Requesting analysis with settings: {extra_settings}", OUTPUT_DEBUG
         )
@@ -329,14 +343,13 @@ class AIStrategy(ABC):
             self.game.katrain.log(f"[{self.strategy_name}] Error in additional analysis query: {a}", OUTPUT_ERROR)
             error = True
 
-        engine = self.search_engine()
         self.query_generations.setdefault(id(engine), engine.query_generation)
         engine.request_analysis(
             self.cn,
             callback=set_analysis,
             error_callback=set_error,
             priority=PRIORITY_EXTRA_AI_QUERY,
-            visits=self.katago_visits,
+            visits=visits or self.katago_visits,
             ownership=ownership,
             extra_settings=extra_settings,
             allow_moves=allow_moves,
@@ -944,7 +957,8 @@ def human_model_engine(katrain):
     model_path = find_package_resource(model) if model else None
     if not model_path or not os.path.isfile(model_path) or resolve_engine_backend(config) != "local":
         return None
-    engine_config = {**config, "model": model, "humanlike_model": "", "allow_recovery": False}
+    # Also passed as -human-model, which KataGo needs before it accepts the humanSL... search settings.
+    engine_config = {**config, "model": model, "humanlike_model": model, "allow_recovery": False}
     with HUMAN_MODEL_ENGINE_LOCK:  # two AI players may ask at once
         engine_config_now, engine = getattr(katrain, "_human_model_engine", (None, None))
         if engine is not None and engine_config_now == engine_config and engine.check_alive():
@@ -1050,7 +1064,12 @@ class CalibratedHumanStrategy(AngryHumanStrategy):
         if len(picked) == 1:
             return top_picked, thoughts
 
-        analysis = self.request_analysis({}, ownership=None, allow_moves=[mv.gtp() for _, mv in picked])
+        # unless this opponent's KataGo settings fix the visits, give the picked moves enough to reach min_visits,
+        # which Simple Style needs for their ownership
+        visits = self.katago_visits or max(
+            self.search_engine().config["max_visits"], 4 * len(picked) * int(self.settings["min_visits"])
+        )
+        analysis = self.request_analysis({}, ownership=None, allow_moves=[mv.gtp() for _, mv in picked], visits=visits)
         if not analysis:
             return top_picked, thoughts + "Search of the picked moves failed, so playing the top one by policy. "
         self.use_analysis(analysis)
