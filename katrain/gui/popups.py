@@ -431,6 +431,7 @@ class ConfigAIPopup(QuickConfigGui):
         strategy = self.ai_select.selected[1]
         mode_settings = self.katrain.config(f"ai/{strategy}")
         self.options_grid.clear_widgets()
+        self.max_options = max(6, len(mode_settings))
         self.help_label.text = i18n._(strategy.replace("ai:", "aihelp:"))
         for k, v in sorted(mode_settings.items(), key=lambda kv: (kv[0] not in AI_KEY_PROPERTIES, kv[0])):
             self.options_grid.add_widget(DescriptionLabel(text=k, size_hint_x=0.275))

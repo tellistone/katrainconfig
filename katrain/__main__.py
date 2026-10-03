@@ -73,7 +73,7 @@ from pysgf import Move, ParseError
 # Importing the package registers every widget class with Kivy's Factory, which is
 # how the .kv files resolve them by name.
 import katrain.gui.widgets  # noqa: F401
-from katrain.core.ai import generate_ai_move
+from katrain.core.ai import generate_ai_move, shutdown_human_model_engine
 from katrain.core.base_katrain import KaTrainBase
 from katrain.core.constants import (
     AI_DEFAULT,
@@ -224,6 +224,7 @@ class KaTrainGui(Screen, KaTrainBase):
         self.controls.set_status(i18n._("restarting engine"), STATUS_INFO)
         old_engine = self.engine
         old_engine.shutdown(finish=False)
+        shutdown_human_model_engine(self)
         new_engine = make_engine(self, self.config("engine"))
         self.engine = new_engine
         self.game.engines = {"B": new_engine, "W": new_engine}
@@ -978,6 +979,7 @@ class KaTrainApp(App):
             self.gui.save_config("ui_state")
             if self.gui.engine:
                 self.gui.engine.shutdown(finish=None)
+            shutdown_human_model_engine(self.gui, finish=None)
 
     def signal_handler(self, _signal, _frame):
         if self.gui.debug_level >= OUTPUT_DEBUG:

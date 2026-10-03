@@ -51,13 +51,22 @@ AI_INFLUENCE = "ai:p:influence"
 AI_TERRITORY = "ai:p:territory"
 AI_RANK = "ai:p:rank"
 AI_SIMPLE_OWNERSHIP = "ai:simple"
+AI_ANGRY_HUMAN = "ai:angryhuman"
 AI_SETTLE_STONES = "ai:settle"
 AI_HUMAN = "ai:human"
 AI_PRO = "ai:pro"
 
 AI_CONFIG_DEFAULT = AI_RANK
 
-AI_STRATEGIES_ENGINE = [AI_DEFAULT, AI_HANDICAP, AI_SCORELOSS, AI_SIMPLE_OWNERSHIP, AI_JIGO, AI_ANTIMIRROR]
+AI_STRATEGIES_ENGINE = [
+    AI_DEFAULT,
+    AI_HANDICAP,
+    AI_SCORELOSS,
+    AI_SIMPLE_OWNERSHIP,
+    AI_ANGRY_HUMAN,
+    AI_JIGO,
+    AI_ANTIMIRROR,
+]
 AI_STRATEGIES_PICK = [AI_PICK, AI_LOCAL, AI_TENUKI, AI_INFLUENCE, AI_TERRITORY, AI_RANK]
 AI_STRATEGIES_POLICY = [AI_WEIGHTED, AI_POLICY] + AI_STRATEGIES_PICK
 AI_STRATEGIES = AI_STRATEGIES_ENGINE + AI_STRATEGIES_POLICY + [AI_HUMAN, AI_PRO]
@@ -68,6 +77,7 @@ AI_STRATEGIES_RECOMMENDED_ORDER = [
     AI_RANK,
     AI_HANDICAP,
     AI_SIMPLE_OWNERSHIP,
+    AI_ANGRY_HUMAN,
     AI_SCORELOSS,
     AI_POLICY,
     AI_WEIGHTED,
@@ -94,6 +104,7 @@ AI_STRENGTH = {  # dan ranks, backup if model is missing. TODO: remove some?
     AI_TERRITORY: -7,
     AI_RANK: float("nan"),
     AI_SIMPLE_OWNERSHIP: 2,
+    AI_ANGRY_HUMAN: float("nan"),  # depends on the human-like model, rank and visits
     AI_SETTLE_STONES: 2,
     AI_HUMAN: float("nan"),
     AI_PRO: float("nan"),
@@ -125,6 +136,8 @@ AI_OPTION_VALUES = {
     + [(k, f"{1 - k}[strength:dan]") for k in range(0, -9, -1)],
     "modern_style": "bool",
     "pro_year": range(1800, 2024),
+    "static_score_utility": [x / 20 for x in range(21)],
+    "dynamic_score_utility": [x / 20 for x in range(21)],
 }
 
 AI_KEY_PROPERTIES = {

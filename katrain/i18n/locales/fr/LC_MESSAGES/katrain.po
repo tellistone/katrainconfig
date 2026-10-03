@@ -1116,3 +1116,16 @@ msgstr "default"
 #. TODO
 msgid "save katago settings"
 msgstr "Save KataGo Settings"
+
+#. TODO
+msgid "aihelp:angryhuman"
+msgstr ""
+"Simple Style, but searched with KataGo's human-like model playing as "
+"human_kyu_rank, and caring much more about the score through "
+"static_score_utility and dynamic_score_utility (KataGo defaults 0.1 and "
+"0.3). Needs a human-like model in the engine settings, and starts a second "
+"KataGo for it."
+
+#. TODO
+msgid "ai:angryhuman"
+msgstr "Angry Human Style"

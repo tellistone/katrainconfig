@@ -128,6 +128,8 @@ jobs:
     - name: Install macOS dependencies
       run: |
         brew update
+        # The Intel runner image links openssl@1.1 into /usr/local/bin, which makes linking openssl@3 fail.
+        brew unlink openssl@1.1 2>/dev/null || true
         brew install libzip ninja protobuf abseil
         brew install --build-from-source sdl2 sdl2_image sdl2_ttf sdl2_mixer
 
@@ -138,7 +140,7 @@ jobs:
         pushd ../KataGo/cpp
         cmake -G Ninja . -DUSE_BACKEND=${{ matrix.backend }} -DBUILD_DISTRIBUTED=1
         cmake --build . -j$(sysctl -n hw.ncpu)
-        cp katago ../../katrain/katrain/KataGo/katago-osx
+        cp katago "$GITHUB_WORKSPACE/katrain/KataGo/katago-osx"
         popd
 
     - name: Build app with PyInstaller

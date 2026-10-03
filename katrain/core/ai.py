@@ -1,12 +1,15 @@
 import copy
 import heapq
 import math
+import os
+import threading
 import time
 from abc import ABC, abstractmethod
 from typing import Dict, List, Optional, Tuple
 
 from katrain.core.constants import (
     ADDITIONAL_MOVE_ORDER,
+    AI_ANGRY_HUMAN,
     AI_ANTIMIRROR,
     AI_DEFAULT,
     AI_HANDICAP,
@@ -35,11 +38,18 @@ from katrain.core.constants import (
     CALIBRATED_RANK_ELO,
     OUTPUT_DEBUG,
     OUTPUT_ERROR,
+    OUTPUT_INFO,
     PRIORITY_EXTRA_AI_QUERY,
 )
+from katrain.core.engine import KataGoEngine, resolve_engine_backend
 from katrain.core.game import Game, GameNode, Move
 from katrain.core.katago_settings import clean_katago_overrides, split_katago_overrides
-from katrain.core.utils import evaluation_class, var_to_grid, weighted_selection_without_replacement
+from katrain.core.utils import (
+    evaluation_class,
+    find_package_resource,
+    var_to_grid,
+    weighted_selection_without_replacement,
+)
 
 # Decorator pattern for adding classes to the registry
 STRATEGY_REGISTRY = {}
@@ -84,7 +94,7 @@ def ai_rank_estimation(strategy, settings) -> int:
         return 9
     if strategy == AI_RANK:
         return 1 - settings["kyu_rank"]
-    if strategy == AI_HUMAN:
+    if strategy in [AI_HUMAN, AI_ANGRY_HUMAN]:  # the rank the human-like model imitates, not a calibrated strength
         return 1 - settings["human_kyu_rank"]
 
     if strategy in [AI_WEIGHTED, AI_SCORELOSS, AI_LOCAL, AI_TENUKI, AI_TERRITORY, AI_INFLUENCE, AI_PICK]:
@@ -262,7 +272,7 @@ class AIStrategy(ABC):
         self.strategy_name = self.__class__.__name__
         # A new game or an engine restart discards outstanding queries without calling back, so
         # remember which generation our work belongs to and stop waiting once the engine moves past it.
-        self.query_generations = {bw: engine.query_generation for bw, engine in game.engines.items()}
+        self.query_generations = {id(engine): engine.query_generation for engine in game.engines.values()}
         self.game.katrain.log(f"Initializing {self.strategy_name} with settings: {self.settings}", OUTPUT_DEBUG)
 
     @abstractmethod
@@ -270,12 +280,24 @@ class AIStrategy(ABC):
         """Generate a move and explanation"""
         pass
 
-    def raise_if_discarded(self, engine, player):
-        """Abort if the engine threw our queries away -- nothing will ever call back for them."""
-        if engine.query_generation != self.query_generations.get(player, engine.query_generation):
-            raise AnalysisDiscardedException(
-                f"analysis for {self.strategy_name} discarded by a new game or an engine restart"
-            )
+    def raise_if_discarded(self, engine):
+        """Abort if the engine threw our queries away, or the game's engines did -- nothing will ever call back."""
+        for e in [engine, *self.game.engines.values()]:
+            if e.query_generation != self.query_generations.get(id(e), e.query_generation):
+                raise AnalysisDiscardedException(
+                    f"analysis for {self.strategy_name} discarded by a new game or an engine restart"
+                )
+
+    # Strategies that always search the position themselves, e.g. with their own engine or search settings.
+    own_search = False
+
+    def own_search_settings(self) -> Dict:
+        """KataGo settings this strategy always searches with. The opponent's KataGo settings take precedence."""
+        return {}
+
+    def search_engine(self):
+        """Engine for this strategy's own queries"""
+        return self.game.engines[self.cn.player]
 
     def delegate(self, strategy_class, ai_settings: Dict) -> "AIStrategy":
         """Create another strategy for this move, sharing this opponent's KataGo settings and analysis"""
@@ -285,7 +307,7 @@ class AIStrategy(ABC):
 
     def request_analysis(self, extra_settings: Dict, ownership: Optional[bool] = False) -> Optional[Dict]:
         """Helper to request additional analysis with custom settings, on top of the opponent's KataGo settings"""
-        extra_settings = {**extra_settings, **self.katago_overrides}
+        extra_settings = {**extra_settings, **self.own_search_settings(), **self.katago_overrides}
         self.game.katrain.log(
             f"[{self.strategy_name}] Requesting analysis with settings: {extra_settings}", OUTPUT_DEBUG
         )
@@ -303,7 +325,8 @@ class AIStrategy(ABC):
             self.game.katrain.log(f"[{self.strategy_name}] Error in additional analysis query: {a}", OUTPUT_ERROR)
             error = True
 
-        engine = self.game.engines[self.cn.player]
+        engine = self.search_engine()
+        self.query_generations.setdefault(id(engine), engine.query_generation)
         engine.request_analysis(
             self.cn,
             callback=set_analysis,
@@ -315,11 +338,12 @@ class AIStrategy(ABC):
         )
         self.game.katrain.log(f"[{self.strategy_name}] Waiting for analysis to complete...", OUTPUT_DEBUG)
         while True:
-            self.raise_if_discarded(engine, self.cn.player)
+            self.raise_if_discarded(engine)
             if error or analysis:
                 break
             time.sleep(0.01)
-            engine.check_alive(exception_if_dead=True)
+            if not engine.check_alive(exception_if_dead=True) and getattr(engine, "katago_process", True) is None:
+                error = True  # a local KataGo that died or was shut down will never answer
 
         if analysis:
             self.game.katrain.log(f"[{self.strategy_name}] Analysis completed successfully", OUTPUT_DEBUG)
@@ -329,7 +353,7 @@ class AIStrategy(ABC):
         """Wait for the analysis to complete, or search with the opponent's KataGo settings if it has any"""
         if self.analysis_overridden:
             return
-        if self.katago_settings and search_with_katago_settings:
+        if (self.katago_settings or self.own_search) and search_with_katago_settings:
             self.game.katrain.log(
                 f"[{self.strategy_name}] Searching with KataGo settings {self.katago_settings}", OUTPUT_DEBUG
             )
@@ -345,10 +369,11 @@ class AIStrategy(ABC):
                 f"[{self.strategy_name}] Search with KataGo settings failed, using the regular analysis", OUTPUT_ERROR
             )
             self.katago_settings, self.katago_visits, self.katago_overrides = {}, None, {}
+            self.own_search = False
         self.game.katrain.log(f"[{self.strategy_name}] Waiting for regular analysis to complete...", OUTPUT_DEBUG)
         engine = self.game.engines[self.cn.next_player]
         while not self.cn.analysis_complete:
-            self.raise_if_discarded(engine, self.cn.next_player)
+            self.raise_if_discarded(engine)
             time.sleep(0.01)
             engine.check_alive(exception_if_dead=True)
         self.game.katrain.log(f"[{self.strategy_name}] Regular analysis completed", OUTPUT_DEBUG)
@@ -882,7 +907,7 @@ class SimpleOwnershipStrategy(OwnershipBaseStrategy):
             aimove = moves_with_settledness[0][0]
 
             self.game.katrain.log(f"[SimpleOwnershipStrategy] Selected move: {aimove.gtp()}", OUTPUT_DEBUG)
-        elif self.katago_settings:  # e.g. too few visits for any move to get its own ownership
+        elif self.katago_settings or self.own_search:  # e.g. too few visits for any move to get ownership
             self.game.katrain.log(
                 f"[SimpleOwnershipStrategy] No moves with ownership info using KataGo settings {self.katago_settings}, "
                 "falling back to DefaultStrategy",
@@ -896,6 +921,85 @@ class SimpleOwnershipStrategy(OwnershipBaseStrategy):
 
         self.game.katrain.log(f"[SimpleOwnershipStrategy] Final decision: {aimove.gtp()}", OUTPUT_DEBUG)
         return aimove, ai_thoughts
+
+
+HUMAN_MODEL_ENGINE_LOCK = threading.RLock()
+
+
+def human_model_engine(katrain):
+    """A second local KataGo that runs the human-like model as its main model, started on first use.
+
+    Returns None when no human-like model is configured or the engine is not a local KataGo."""
+    config = katrain.config("engine") or {}
+    model = (config.get("humanlike_model") or "").strip()
+    model_path = find_package_resource(model) if model else None
+    if not model_path or not os.path.isfile(model_path) or resolve_engine_backend(config) != "local":
+        return None
+    engine_config = {**config, "model": model, "humanlike_model": "", "allow_recovery": False}
+    with HUMAN_MODEL_ENGINE_LOCK:  # two AI players may ask at once
+        engine_config_now, engine = getattr(katrain, "_human_model_engine", (None, None))
+        if engine is not None and engine_config_now == engine_config and engine.check_alive():
+            return engine
+        shutdown_human_model_engine(katrain)
+        katrain.log(f"Starting KataGo with the human-like model {model_path}", OUTPUT_INFO)
+        engine = KataGoEngine(katrain, engine_config)
+        katrain._human_model_engine = (engine_config, engine)
+        return engine
+
+
+def shutdown_human_model_engine(katrain, finish=False):
+    with HUMAN_MODEL_ENGINE_LOCK:
+        _, engine = getattr(katrain, "_human_model_engine", (None, None))
+        katrain._human_model_engine = (None, None)
+    if engine is not None:
+        with engine.thread_lock:
+            engine.query_generation += 1  # so strategies waiting on it stop waiting
+        engine.shutdown(finish=finish)
+
+
+def human_sl_rank_profile(kyu_rank) -> str:
+    rank = round(kyu_rank)
+    return f"rank_{1 - rank}d" if rank <= 0 else f"rank_{rank}k"
+
+
+@register_strategy(AI_ANGRY_HUMAN)
+class AngryHumanStrategy(SimpleOwnershipStrategy):
+    """Simple Style, searched with KataGo's human-like model at a chosen rank, valuing score much more than usual"""
+
+    own_search = True
+
+    def __init__(self, game: Game, ai_settings: Dict, *args, **kwargs):
+        super().__init__(game, ai_settings, *args, **kwargs)
+        self.human_engine = None
+
+    def own_search_settings(self) -> Dict:
+        settings = {
+            "staticScoreUtilityFactor": self.settings["static_score_utility"],
+            "dynamicScoreUtilityFactor": self.settings["dynamic_score_utility"],
+        }
+        if self.human_engine is not None:
+            settings.update(
+                {
+                    "humanSLProfile": human_sl_rank_profile(self.settings["human_kyu_rank"]),
+                    "ignorePreRootHistory": False,
+                }
+            )
+        return settings
+
+    def search_engine(self):
+        return self.human_engine or super().search_engine()
+
+    def generate_move(self) -> Tuple[Move, str]:
+        self.human_engine = human_model_engine(self.game.katrain)
+        if self.human_engine is None:
+            note = "No local human-like model is set in the engine settings, so this searched with the main model. "
+            self.game.katrain.log(f"[{self.strategy_name}] {note}", OUTPUT_ERROR)
+        else:
+            note = f"Human-like model at {human_sl_rank_profile(self.settings['human_kyu_rank'])}. "
+        move, ai_thoughts = super().generate_move()
+        if not self.own_search:  # the search failed and the regular analysis was used
+            note = "The human-like model search failed, so this used the regular analysis. "
+        return move, note + ai_thoughts
 
 
 @register_strategy(AI_SETTLE_STONES)
@@ -992,7 +1096,7 @@ class SettleStonesStrategy(OwnershipBaseStrategy):
             aimove = moves_with_settledness[0][0]
 
             self.game.katrain.log(f"[SettleStonesStrategy] Selected move: {aimove.gtp()}", OUTPUT_DEBUG)
-        elif self.katago_settings:  # e.g. too few visits for any move to get its own ownership
+        elif self.katago_settings or self.own_search:  # e.g. too few visits for any move to get ownership
             self.game.katrain.log(
                 f"[SettleStonesStrategy] No moves with ownership info using KataGo settings {self.katago_settings}, "
                 "falling back to DefaultStrategy",
@@ -1696,7 +1800,7 @@ class HumanStyleStrategy(AIStrategy):
         # Wait for analysis to complete
         wait_count = 0
         while True:
-            self.raise_if_discarded(engine, self.cn.player)
+            self.raise_if_discarded(engine)
             if error or analysis:
                 break
             time.sleep(0.01)
