@@ -16,7 +16,7 @@ class TestCalibratedHuman:
         settings = katrain.config(f"ai/{AI_CALIBRATED_HUMAN}")
         for strategy in [AI_RANK, AI_SIMPLE_OWNERSHIP, AI_ANGRY_HUMAN]:
             assert set(katrain.config(f"ai/{strategy}")) <= set(settings)
-        assert settings["human_kyu_rank"] == 13
+        assert settings["human_kyu_rank"] == settings["kyu_rank"]
         assert settings["kyu_rank"] == katrain.config(f"ai/{AI_RANK}")["kyu_rank"]
         assert settings["static_score_utility"] > 0.1 and settings["dynamic_score_utility"] > 0.3
         assert ai_rank_estimation(AI_CALIBRATED_HUMAN, settings) == ai_rank_estimation(
@@ -64,7 +64,7 @@ class TestCalibratedHuman:
                 move, node = generate_ai_move(game, AI_CALIBRATED_HUMAN, katrain.config(f"ai/{AI_CALIBRATED_HUMAN}"))
                 katrain.log(f"Calibrated Human Style -> {move}: {node.ai_thoughts}", 0)
                 assert move.coords is not None
-                assert node.ai_thoughts.startswith("Human-like model at rank_13k.")
+                assert node.ai_thoughts.startswith("Human-like model at rank_4k.")
                 assert allowed[0] is None  # the full search for the policy
                 if "Searched only these" in node.ai_thoughts:
                     assert len(allowed) == 2 and move.gtp() in allowed[1]

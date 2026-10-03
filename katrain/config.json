@@ -133,7 +133,7 @@
         },
         "ai:calibratedhuman": {
             "kyu_rank": 4.0,
-            "human_kyu_rank": 13,
+            "human_kyu_rank": 4,
             "static_score_utility": 0.5,
             "dynamic_score_utility": 0.6,
             "max_points_lost": 1.75,
