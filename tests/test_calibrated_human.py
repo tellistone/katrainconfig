@@ -17,9 +17,11 @@ class TestCalibratedHuman:
         for strategy in [AI_RANK, AI_SIMPLE_OWNERSHIP, AI_ANGRY_HUMAN]:
             assert set(katrain.config(f"ai/{strategy}")) <= set(settings)
         assert settings["human_kyu_rank"] == 13
-        assert settings["kyu_rank"] == 13
+        assert settings["kyu_rank"] == katrain.config(f"ai/{AI_RANK}")["kyu_rank"]
         assert settings["static_score_utility"] > 0.1 and settings["dynamic_score_utility"] > 0.3
-        assert ai_rank_estimation(AI_CALIBRATED_HUMAN, settings) == -12
+        assert ai_rank_estimation(AI_CALIBRATED_HUMAN, settings) == ai_rank_estimation(
+            AI_RANK, katrain.config(f"ai/{AI_RANK}")
+        )
 
     def test_allow_moves_query(self):
         katrain = KaTrainBase(force_package_config=True, debug_level=0)
