@@ -1088,3 +1088,17 @@ msgstr ""
 #. TODO
 msgid "ai:angryhuman"
 msgstr "Angry Human Style"
+
+#. TODO
+msgid "ai:calibratedhuman"
+msgstr "Calibrated Human Style"
+
+#. TODO
+msgid "aihelp:calibratedhuman"
+msgstr ""
+"Calibrated Rank's random pick of candidate moves for kyu_rank, taken from "
+"KataGo's human-like model playing as human_kyu_rank. The picked moves are "
+"then searched with static_score_utility and dynamic_score_utility raised, "
+"and chosen between like Simple Style, with max_points_lost measured from the"
+" best picked move. Needs a human-like model in the engine settings, and "
+"starts a second KataGo for it."

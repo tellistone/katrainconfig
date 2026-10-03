@@ -454,6 +454,7 @@ class KataGoEngine(BaseEngine):
         extra_settings: Optional[Dict] = None,
         include_policy=True,
         report_every: Optional[float] = None,
+        allow_moves: Optional[List[str]] = None,  # only search these moves for the player to move
     ):
         nodes = analysis_node.nodes_from_root
         moves = [m for node in nodes for m in node.moves]
@@ -527,5 +528,7 @@ class KataGoEngine(BaseEngine):
             query["reportDuringSearchEvery"] = report_every
         if avoid:
             query["avoidMoves"] = avoid
+        if allow_moves:
+            query["allowMoves"] = [{"moves": allow_moves, "player": analysis_node.next_player, "untilDepth": 1}]
         self.send_query(query, callback, error_callback, next_move, analysis_node)
         analysis_node.analysis_visits_requested = max(analysis_node.analysis_visits_requested, visits)

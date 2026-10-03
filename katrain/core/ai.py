@@ -11,6 +11,7 @@ from katrain.core.constants import (
     ADDITIONAL_MOVE_ORDER,
     AI_ANGRY_HUMAN,
     AI_ANTIMIRROR,
+    AI_CALIBRATED_HUMAN,
     AI_DEFAULT,
     AI_HANDICAP,
     AI_HUMAN,
@@ -92,7 +93,7 @@ def interp2d(gridspec, x, y):
 def ai_rank_estimation(strategy, settings) -> int:
     if strategy in [AI_DEFAULT, AI_HANDICAP, AI_JIGO, AI_PRO]:
         return 9
-    if strategy == AI_RANK:
+    if strategy in [AI_RANK, AI_CALIBRATED_HUMAN]:
         return 1 - settings["kyu_rank"]
     if strategy in [AI_HUMAN, AI_ANGRY_HUMAN]:  # the rank the human-like model imitates, not a calibrated strength
         return 1 - settings["human_kyu_rank"]
@@ -305,8 +306,11 @@ class AIStrategy(ABC):
             self.game, ai_settings, self.katago_settings, self.cn if self.analysis_overridden else None
         )
 
-    def request_analysis(self, extra_settings: Dict, ownership: Optional[bool] = False) -> Optional[Dict]:
-        """Helper to request additional analysis with custom settings, on top of the opponent's KataGo settings"""
+    def request_analysis(
+        self, extra_settings: Dict, ownership: Optional[bool] = False, allow_moves: Optional[List[str]] = None
+    ) -> Optional[Dict]:
+        """Helper to request additional analysis with custom settings, on top of the opponent's KataGo settings.
+        With allow_moves, only those moves are searched for the player to move."""
         extra_settings = {**extra_settings, **self.own_search_settings(), **self.katago_overrides}
         self.game.katrain.log(
             f"[{self.strategy_name}] Requesting analysis with settings: {extra_settings}", OUTPUT_DEBUG
@@ -335,6 +339,7 @@ class AIStrategy(ABC):
             visits=self.katago_visits,
             ownership=ownership,
             extra_settings=extra_settings,
+            allow_moves=allow_moves,
         )
         self.game.katrain.log(f"[{self.strategy_name}] Waiting for analysis to complete...", OUTPUT_DEBUG)
         while True:
@@ -349,6 +354,14 @@ class AIStrategy(ABC):
             self.game.katrain.log(f"[{self.strategy_name}] Analysis completed successfully", OUTPUT_DEBUG)
         return analysis
 
+    def use_analysis(self, analysis: Dict):
+        """Decide on this analysis from now on, without touching the analysis shown on the board"""
+        view = copy.copy(self.cn)  # same position, own analysis
+        view.clear_analysis()
+        view.set_analysis(analysis, update_parent=False)
+        self.cn = view
+        self.analysis_overridden = True
+
     def wait_for_analysis(self, search_with_katago_settings: bool = True):
         """Wait for the analysis to complete, or search with the opponent's KataGo settings if it has any"""
         if self.analysis_overridden:
@@ -359,11 +372,7 @@ class AIStrategy(ABC):
             )
             analysis = self.request_analysis({}, ownership=None)
             if analysis:
-                view = copy.copy(self.cn)  # same position, own analysis, so the analysis shown on the board is kept
-                view.clear_analysis()
-                view.set_analysis(analysis, update_parent=False)
-                self.cn = view
-                self.analysis_overridden = True
+                self.use_analysis(analysis)
                 return
             self.game.katrain.log(
                 f"[{self.strategy_name}] Search with KataGo settings failed, using the regular analysis", OUTPUT_ERROR
@@ -996,10 +1005,57 @@ class AngryHumanStrategy(SimpleOwnershipStrategy):
             self.game.katrain.log(f"[{self.strategy_name}] {note}", OUTPUT_ERROR)
         else:
             note = f"Human-like model at {human_sl_rank_profile(self.settings['human_kyu_rank'])}. "
-        move, ai_thoughts = super().generate_move()
+        move, ai_thoughts = self.choose_move()
         if not self.own_search:  # the search failed and the regular analysis was used
             note = "The human-like model search failed, so this used the regular analysis. "
         return move, note + ai_thoughts
+
+    def choose_move(self) -> Tuple[Move, str]:
+        return super().generate_move()
+
+
+@register_strategy(AI_CALIBRATED_HUMAN)
+class CalibratedHumanStrategy(AngryHumanStrategy):
+    """Calibrated Rank's random pick of candidate moves, from the human-like model's policy, then Simple Style's
+    choice among those candidates after a search restricted to them"""
+
+    def choose_move(self) -> Tuple[Move, str]:
+        self.wait_for_analysis()
+        if not self.cn.policy:
+            return SimpleOwnershipStrategy.generate_move(self)
+
+        rank = self.delegate(RankStrategy, self.settings)
+        policy_moves = self.cn.policy_ranking
+        pass_policy = self.cn.policy[-1]
+        top_5_pass = any(move.is_pass for _, move in policy_moves[:5])
+        override_move, override_thoughts = rank.should_play_top_move(policy_moves, top_5_pass)
+        if override_move:
+            return override_move, override_thoughts
+
+        legal_policy_moves = [(pol, mv) for pol, mv in policy_moves if not mv.is_pass and pol > 0]
+        n_moves = rank.get_n_moves(legal_policy_moves)
+        # equal weights, as Calibrated Rank; indices keep ties from ever comparing moves
+        picked_indices = weighted_selection_without_replacement(
+            [(pol, 1, i) for i, (pol, _) in enumerate(legal_policy_moves)], n_moves
+        )
+        picked = sorted((legal_policy_moves[i] for _, _, i in picked_indices), key=lambda pm: -pm[0])
+        top_policy_move = policy_moves[0][1]
+        if not picked:
+            return top_policy_move, f"No legal moves picked, so playing top policy move {top_policy_move.gtp()}. "
+        top_pol, top_picked = picked[0]
+        thoughts = f"Picked {len(picked)} random moves for kyu_rank {self.settings['kyu_rank']}, "
+        thoughts += f"top 5 by policy {fmt_moves(picked[:5])}. "
+        if top_pol < pass_policy:
+            return top_policy_move, thoughts + f"Pass is rated above {top_picked.gtp()}, so playing top policy move."
+        if len(picked) == 1:
+            return top_picked, thoughts
+
+        analysis = self.request_analysis({}, ownership=None, allow_moves=[mv.gtp() for _, mv in picked])
+        if not analysis:
+            return top_picked, thoughts + "Search of the picked moves failed, so playing the top one by policy. "
+        self.use_analysis(analysis)
+        move, simple_thoughts = SimpleOwnershipStrategy.generate_move(self)
+        return move, thoughts + "Searched only these. " + simple_thoughts
 
 
 @register_strategy(AI_SETTLE_STONES)
