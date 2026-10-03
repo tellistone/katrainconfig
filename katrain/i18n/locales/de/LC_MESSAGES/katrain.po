@@ -1126,3 +1126,23 @@ msgstr "Zugnummern auf dem Brett anzeigen (mit 'm' umschalten)"
 msgid "general:anim_pv_moves"
 msgstr ""
 "Anzahl der Züge bei der Animation einer Zugfolge (0 = keine Animation)"
+
+#. TODO
+msgid "katago settings help"
+msgstr ""
+"KataGo search settings for this opponent. Leave a field blank to keep the "
+"default. Opponents that only use the policy (most of the policy-based ones) "
+"are mainly affected by maxVisits and the human-like model settings; the "
+"human-like settings need the human-like model set in the engine settings."
+
+#. TODO
+msgid "reset katago settings"
+msgstr "Reset All to Defaults"
+
+#. TODO
+msgid "katago default"
+msgstr "default"
+
+#. TODO
+msgid "save katago settings"
+msgstr "Save KataGo Settings"

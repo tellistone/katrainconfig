@@ -36,11 +36,17 @@ from katrain.core.constants import (
     SGF_INTERNAL_COMMENTS_MARKER,
 )
 from katrain.core.engine import resolve_engine_backend
+from katrain.core.katago_settings import (
+    KATAGO_PARAMS_BY_NAME,
+    KATAGO_SETTINGS_CONFIG_SECTION,
+    clean_katago_overrides,
+    katago_param_groups,
+)
 from katrain.core.lang import i18n, rank_label
 from katrain.core.utils import PATHS, find_package_resource
 from katrain.gui.theme import Theme
 from katrain.gui.widgets.base import BackgroundMixin
-from katrain.gui.widgets.inputs import I18NSpinner
+from katrain.gui.widgets.inputs import I18NSpinner, KeyValueSpinner
 from katrain.gui.widgets.labels import TableCellLabel, TableHeaderLabel, TableStatLabel
 from katrain.gui.widgets.material import MaterialCheckBox, MaterialTextField
 from katrain.gui.widgets.progress_loader import ProgressLoader
@@ -327,8 +333,8 @@ class NewGamePopup(QuickConfigGui):
         self.update_playerinfo()  # name
 
 
-def wrap_anchor(widget):
-    anchor = AnchorLayout()
+def wrap_anchor(widget, height=None):
+    anchor = AnchorLayout() if height is None else AnchorLayout(size_hint_y=None, height=height)
     anchor.add_widget(widget)
     return anchor
 
@@ -382,6 +388,7 @@ class DescriptionLabel(Label):
 
 class ConfigAIPopup(QuickConfigGui):
     max_options = NumericProperty(6)
+    katago_button_text = StringProperty("")
 
     def __init__(self, katrain):
         super().__init__(katrain)
@@ -391,6 +398,22 @@ class ConfigAIPopup(QuickConfigGui):
         self.ai_select.select_key(config_strategy)
         self.build_ai_options()
         self.ai_select.bind(text=self.build_ai_options)
+        App.get_running_app().bind(language=self.update_katago_button)
+
+    def update_katago_button(self, *_args):
+        strategy = self.ai_select.selected[1]
+        n_set = len(self.katrain.config(f"{KATAGO_SETTINGS_CONFIG_SECTION}/{strategy}") or {})
+        self.katago_button_text = i18n._("katago settings") + (f" ({n_set})" if n_set else "")
+
+    def open_katago_settings(self):
+        strategy = self.ai_select.selected[1]
+        popup = I18NPopup(
+            title_key="katago settings",
+            size=[dp(1100), dp(800)],
+            content=KataGoSettingsPopup(self.katrain, strategy, on_saved=self.update_katago_button),
+        ).__self__
+        popup.content.popup = popup
+        popup.open()
 
     def estimate_rank_from_options(self, *_args):
         strategy = self.ai_select.selected[1]
@@ -434,12 +457,124 @@ class ConfigAIPopup(QuickConfigGui):
                 )
         for _ in range((self.max_options - len(mode_settings)) * 2):
             self.options_grid.add_widget(Label(size_hint_x=None))
+        self.update_katago_button()
         Clock.schedule_once(self.estimate_rank_from_options)
 
     def update_config(self, save_to_file=True, close_popup=True):
         super().update_config(save_to_file=save_to_file, close_popup=close_popup)
         self.katrain.update_calculated_ranks()
         Clock.schedule_once(self.katrain.controls.update_players, 0)
+
+
+class KataGoSettingsPopup(BoxLayout):
+    """Every KataGo search setting for one AI opponent. A blank field keeps KaTrain's or KataGo's default."""
+
+    strategy = StringProperty("")
+    error_message = StringProperty("")
+
+    def __init__(self, katrain, strategy, on_saved=None, **kwargs):
+        self.katrain = katrain
+        self.on_saved = on_saved
+        self.popup = None
+        self.inputs = {}  # param name -> widget
+        super().__init__(strategy=strategy, **kwargs)
+        Clock.schedule_once(self.build_rows, 0)
+
+    def stored_settings(self):
+        return clean_katago_overrides(self.katrain.config(f"{KATAGO_SETTINGS_CONFIG_SECTION}/{self.strategy}"))
+
+    def build_rows(self, *_args):
+        stored = self.stored_settings()
+        self.rows_grid.clear_widgets()
+        self.inputs = {}
+        row_height = dp(48)
+        for group, params in katago_param_groups():
+            self.rows_grid.add_widget(KataGoSettingsGroupLabel(text=group))
+            self.rows_grid.add_widget(Label(size_hint_y=None, height=row_height))
+            self.rows_grid.add_widget(Label(size_hint_y=None, height=row_height))
+            for param in params:
+                value = stored.get(param.name)
+                default = param.default_text()
+                if param.kind in ("bool", "choice"):
+                    options = ("true", "false") if param.kind == "bool" else tuple(param.choices)
+                    widget = KeyValueSpinner(
+                        value_refs=["", *options],
+                        values=[i18n._("katago default") + (f" ({default})" if default else ""), *options],
+                        size_hint=(0.9, None),
+                        height=row_height * 0.8,
+                    )
+                    widget.select_key("" if value is None else str(value).lower())
+                else:
+                    widget = LabelledTextInput(
+                        text="" if value is None else str(value),
+                        hint_text=i18n._("katago default") + (f" {default}" if default else ""),
+                        size_hint=(0.9, None),
+                        height=row_height * 0.9,
+                    )
+                self.inputs[param.name] = widget
+                self.rows_grid.add_widget(
+                    KataGoSettingsNameLabel(text=f"{param.name}\n[size=12sp]{param.range_text()}[/size]")
+                )
+                self.rows_grid.add_widget(wrap_anchor(widget, height=row_height))
+                self.rows_grid.add_widget(KataGoSettingsDescriptionLabel(text=param.description))
+
+    def collect(self) -> Dict[str, Any]:
+        settings, errors = {}, []
+        for name, widget in self.inputs.items():
+            raw = widget.input_value if isinstance(widget, KeyValueSpinner) else widget.text.strip()
+            if isinstance(widget, LabelledTextInput):
+                widget.error = False
+            if raw == "":
+                continue
+            try:
+                settings[name] = KATAGO_PARAMS_BY_NAME[name].parse(raw)
+            except ValueError as e:
+                errors.append(str(e))
+                if isinstance(widget, LabelledTextInput):
+                    widget.error = True
+        if errors:
+            raise InputParseError("; ".join(errors))
+        return settings
+
+    def reset(self):
+        for widget in self.inputs.values():
+            if isinstance(widget, KeyValueSpinner):
+                widget.select_key("")
+            else:
+                widget.text = ""
+                widget.error = False
+        self.error_message = ""
+
+    def save(self):
+        try:
+            settings = self.collect()
+        except InputParseError as e:
+            self.error_message = str(e)
+            return
+        self.error_message = ""
+        section = self.katrain._config.setdefault(KATAGO_SETTINGS_CONFIG_SECTION, {})
+        if settings:
+            section[self.strategy] = settings
+        else:
+            section.pop(self.strategy, None)
+        self.katrain.log(f"KataGo settings for {self.strategy}: {settings}", OUTPUT_DEBUG)
+        self.katrain.save_config(KATAGO_SETTINGS_CONFIG_SECTION)
+        if self.on_saved:
+            self.on_saved()
+        if self.popup:
+            self.popup.dismiss()
+
+
+class KataGoSettingsGroupLabel(Label):
+    pass
+
+
+class KataGoSettingsNameLabel(Label):
+    pass
+
+
+class KataGoSettingsDescriptionLabel(Label):
+    pass
 
 
 class EngineRecoveryPopup(QuickConfigGui):

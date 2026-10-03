@@ -96,6 +96,7 @@ from katrain.core.constants import (
 )
 from katrain.core.contribute_engine import KataGoContributeEngine
 from katrain.core.game import BaseGame, Game, IllegalMoveException, KaTrainSGF
+from katrain.core.katago_settings import KATAGO_SETTINGS_CONFIG_SECTION
 from katrain.core.lang import DEFAULT_LANGUAGE, i18n
 from katrain.core.remote_engine import make_engine
 from katrain.gui.badukpan import AnalysisControls, BadukPanControls, BadukPanWidget  # noqa: F401
@@ -421,7 +422,7 @@ class KaTrainGui(Screen, KaTrainBase):
             mode = self.next_player_info.strategy
             settings = self.config(f"ai/{mode}")
             if settings is not None:
-                generate_ai_move(self.game, mode, settings)
+                generate_ai_move(self.game, mode, settings, self.config(f"{KATAGO_SETTINGS_CONFIG_SECTION}/{mode}"))
             else:
                 self.log(f"AI Mode {mode} not found!", OUTPUT_ERROR)
 

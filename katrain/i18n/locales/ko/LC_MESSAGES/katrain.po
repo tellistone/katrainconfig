@@ -1025,3 +1025,23 @@ msgstr "바둑판에 수순 표시 ('m' 키로 전환)"
 
 msgid "general:anim_pv_moves"
 msgstr "수순 애니메이션에서 표시할 수순 수 (0이면 애니메이션 안 함)"
+
+#. TODO
+msgid "katago settings help"
+msgstr ""
+"KataGo search settings for this opponent. Leave a field blank to keep the "
+"default. Opponents that only use the policy (most of the policy-based ones) "
+"are mainly affected by maxVisits and the human-like model settings; the "
+"human-like settings need the human-like model set in the engine settings."
+
+#. TODO
+msgid "reset katago settings"
+msgstr "Reset All to Defaults"
+
+#. TODO
+msgid "katago default"
+msgstr "default"
+
+#. TODO
+msgid "save katago settings"
+msgstr "Save KataGo Settings"

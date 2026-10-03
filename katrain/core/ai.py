@@ -1,3 +1,4 @@
+import copy
 import heapq
 import math
 import time
@@ -37,6 +38,7 @@ from katrain.core.constants import (
     PRIORITY_EXTRA_AI_QUERY,
 )
 from katrain.core.game import Game, GameNode, Move
+from katrain.core.katago_settings import clean_katago_overrides, split_katago_overrides
 from katrain.core.utils import evaluation_class, var_to_grid, weighted_selection_without_replacement
 
 # Decorator pattern for adding classes to the registry
@@ -241,10 +243,22 @@ class AnalysisDiscardedException(Exception):
 class AIStrategy(ABC):
     """Base strategy class for AI move generation"""
 
-    def __init__(self, game: Game, ai_settings: Dict):
+    def __init__(
+        self,
+        game: Game,
+        ai_settings: Dict,
+        katago_settings: Optional[Dict] = None,
+        analysis_node: Optional[GameNode] = None,
+    ):
         self.game = game
         self.settings = ai_settings
-        self.cn = game.current_node
+        # Per-opponent KataGo search settings. When set, the strategy searches the position itself with them
+        # rather than reading the analysis KaTrain shows on the board.
+        self.katago_settings = katago_settings or {}
+        self.katago_visits, self.katago_overrides = split_katago_overrides(self.katago_settings)
+        # A node carrying analysis searched with katago_settings, handed over when one strategy delegates to another.
+        self.analysis_overridden = analysis_node is not None
+        self.cn = analysis_node or game.current_node
         self.strategy_name = self.__class__.__name__
         # A new game or an engine restart discards outstanding queries without calling back, so
         # remember which generation our work belongs to and stop waiting once the engine moves past it.
@@ -263,8 +277,15 @@ class AIStrategy(ABC):
                 f"analysis for {self.strategy_name} discarded by a new game or an engine restart"
             )
 
-    def request_analysis(self, extra_settings: Dict) -> Optional[Dict]:
-        """Helper to request additional analysis with custom settings"""
+    def delegate(self, strategy_class, ai_settings: Dict) -> "AIStrategy":
+        """Create another strategy for this move, sharing this opponent's KataGo settings and analysis"""
+        return strategy_class(
+            self.game, ai_settings, self.katago_settings, self.cn if self.analysis_overridden else None
+        )
+
+    def request_analysis(self, extra_settings: Dict, ownership: Optional[bool] = False) -> Optional[Dict]:
+        """Helper to request additional analysis with custom settings, on top of the opponent's KataGo settings"""
+        extra_settings = {**extra_settings, **self.katago_overrides}
         self.game.katrain.log(
             f"[{self.strategy_name}] Requesting analysis with settings: {extra_settings}", OUTPUT_DEBUG
         )
@@ -288,7 +309,8 @@ class AIStrategy(ABC):
             callback=set_analysis,
             error_callback=set_error,
             priority=PRIORITY_EXTRA_AI_QUERY,
-            ownership=False,
+            visits=self.katago_visits,
+            ownership=ownership,
             extra_settings=extra_settings,
         )
         self.game.katrain.log(f"[{self.strategy_name}] Waiting for analysis to complete...", OUTPUT_DEBUG)
@@ -303,8 +325,26 @@ class AIStrategy(ABC):
             self.game.katrain.log(f"[{self.strategy_name}] Analysis completed successfully", OUTPUT_DEBUG)
         return analysis
 
-    def wait_for_analysis(self):
-        """Wait for the analysis to complete"""
+    def wait_for_analysis(self, search_with_katago_settings: bool = True):
+        """Wait for the analysis to complete, or search with the opponent's KataGo settings if it has any"""
+        if self.analysis_overridden:
+            return
+        if self.katago_settings and search_with_katago_settings:
+            self.game.katrain.log(
+                f"[{self.strategy_name}] Searching with KataGo settings {self.katago_settings}", OUTPUT_DEBUG
+            )
+            analysis = self.request_analysis({}, ownership=None)
+            if analysis:
+                view = copy.copy(self.cn)  # same position, own analysis, so the analysis shown on the board is kept
+                view.clear_analysis()
+                view.set_analysis(analysis, update_parent=False)
+                self.cn = view
+                self.analysis_overridden = True
+                return
+            self.game.katrain.log(
+                f"[{self.strategy_name}] Search with KataGo settings failed, using the regular analysis", OUTPUT_ERROR
+            )
+            self.katago_settings, self.katago_visits, self.katago_overrides = {}, None, {}
         self.game.katrain.log(f"[{self.strategy_name}] Waiting for regular analysis to complete...", OUTPUT_DEBUG)
         engine = self.game.engines[self.cn.next_player]
         while not self.cn.analysis_complete:
@@ -410,13 +450,13 @@ class HandicapStrategy(AIStrategy):
             {"playoutDoublingAdvantage": pda, "playoutDoublingAdvantagePla": "BLACK"}
         )
 
-        if not handicap_analysis:
+        if not handicap_analysis or not handicap_analysis["moveInfos"]:  # no moves with very few visits
             self.game.katrain.log(
                 "[HandicapStrategy] Error getting handicap-based move, falling back to DefaultStrategy", OUTPUT_ERROR
             )
-            return DefaultStrategy(self.game, self.settings).generate_move()
+            return self.delegate(DefaultStrategy, self.settings).generate_move()
 
-        self.wait_for_analysis()
+        self.wait_for_analysis(search_with_katago_settings=False)  # the query above already used them
 
         candidate_moves = handicap_analysis["moveInfos"]
         self.game.katrain.log(
@@ -451,13 +491,13 @@ class AntimirrorStrategy(AIStrategy):
         self.game.katrain.log("[AntimirrorStrategy] Requesting analysis with antiMirror=True", OUTPUT_DEBUG)
         antimirror_analysis = self.request_analysis({"antiMirror": True})
 
-        if not antimirror_analysis:
+        if not antimirror_analysis or not antimirror_analysis["moveInfos"]:  # no moves with very few visits
             self.game.katrain.log(
                 "[AntimirrorStrategy] Error getting antimirror move, falling back to DefaultStrategy", OUTPUT_ERROR
             )
-            return DefaultStrategy(self.game, self.settings).generate_move()
+            return self.delegate(DefaultStrategy, self.settings).generate_move()
 
-        self.wait_for_analysis()
+        self.wait_for_analysis(search_with_katago_settings=False)  # the query above already used them
 
         candidate_moves = antimirror_analysis["moveInfos"]
         self.game.katrain.log(
@@ -842,6 +882,13 @@ class SimpleOwnershipStrategy(OwnershipBaseStrategy):
             aimove = moves_with_settledness[0][0]
 
             self.game.katrain.log(f"[SimpleOwnershipStrategy] Selected move: {aimove.gtp()}", OUTPUT_DEBUG)
+        elif self.katago_settings:  # e.g. too few visits for any move to get its own ownership
+            self.game.katrain.log(
+                f"[SimpleOwnershipStrategy] No moves with ownership info using KataGo settings {self.katago_settings}, "
+                "falling back to DefaultStrategy",
+                OUTPUT_ERROR,
+            )
+            return self.delegate(DefaultStrategy, self.settings).generate_move()
         else:
             error_msg = "No moves found - are you using an older KataGo with no per-move ownership info?"
             self.game.katrain.log(f"[SimpleOwnershipStrategy] Error: {error_msg}", OUTPUT_ERROR)
@@ -945,6 +992,13 @@ class SettleStonesStrategy(OwnershipBaseStrategy):
             aimove = moves_with_settledness[0][0]
 
             self.game.katrain.log(f"[SettleStonesStrategy] Selected move: {aimove.gtp()}", OUTPUT_DEBUG)
+        elif self.katago_settings:  # e.g. too few visits for any move to get its own ownership
+            self.game.katrain.log(
+                f"[SettleStonesStrategy] No moves with ownership info using KataGo settings {self.katago_settings}, "
+                "falling back to DefaultStrategy",
+                OUTPUT_ERROR,
+            )
+            return self.delegate(DefaultStrategy, self.settings).generate_move()
         else:
             error_msg = "No moves found - are you using an older KataGo with no per-move ownership info?"
             self.game.katrain.log(f"[SettleStonesStrategy] Error: {error_msg}", OUTPUT_ERROR)
@@ -967,7 +1021,7 @@ class PolicyStrategy(AIStrategy):
             self.game.katrain.log(
                 "[PolicyStrategy] No policy data available, falling back to DefaultStrategy", OUTPUT_DEBUG
             )
-            return DefaultStrategy(self.game, self.settings).generate_move()
+            return self.delegate(DefaultStrategy, self.settings).generate_move()
 
         policy_moves = self.cn.policy_ranking
         pass_policy = self.cn.policy[-1]
@@ -994,7 +1048,7 @@ class PolicyStrategy(AIStrategy):
             self.game.katrain.log("[PolicyStrategy] In opening phase, using WeightedStrategy instead", OUTPUT_DEBUG)
             weighted_settings = {"pick_override": 0.9, "weaken_fac": 1, "lower_bound": 0.02}
             self.game.katrain.log(f"[PolicyStrategy] Weighted settings: {weighted_settings}", OUTPUT_DEBUG)
-            return WeightedStrategy(self.game, weighted_settings).generate_move()
+            return self.delegate(WeightedStrategy, weighted_settings).generate_move()
 
         # Check for pass in top 5
         if top_5_pass:
@@ -1030,7 +1084,7 @@ class WeightedStrategy(AIStrategy):
             self.game.katrain.log(
                 "[WeightedStrategy] No policy data available, falling back to DefaultStrategy", OUTPUT_DEBUG
             )
-            return DefaultStrategy(self.game, self.settings).generate_move()
+            return self.delegate(DefaultStrategy, self.settings).generate_move()
 
         policy_moves = self.cn.policy_ranking
         pass_policy = self.cn.policy[-1]
@@ -1247,7 +1301,7 @@ class PickBasedStrategy(AIStrategy):
             self.game.katrain.log(
                 f"[{self.strategy_name}] No policy data available, falling back to DefaultStrategy", OUTPUT_DEBUG
             )
-            return DefaultStrategy(self.game, self.settings).generate_move()
+            return self.delegate(DefaultStrategy, self.settings).generate_move()
 
         policy_moves = self.cn.policy_ranking
         pass_policy = self.cn.policy[-1]
@@ -1558,8 +1612,8 @@ class TenukiStrategy(PickBasedStrategy):
 class HumanStyleStrategy(AIStrategy):
     """Strategy that imitates human play at various skill levels"""
 
-    def __init__(self, game: Game, ai_settings: Dict):
-        super().__init__(game, ai_settings)
+    def __init__(self, game: Game, ai_settings: Dict, *args, **kwargs):
+        super().__init__(game, ai_settings, *args, **kwargs)
         self.game.katrain.log("[HumanStyleStrategy] Initializing HumanStyleStrategy", OUTPUT_DEBUG)
         self.game.katrain.log(f"[HumanStyleStrategy] AI settings: {ai_settings}", OUTPUT_DEBUG)
 
@@ -1586,6 +1640,7 @@ class HumanStyleStrategy(AIStrategy):
         override_settings = {
             "humanSLProfile": human_profile,
             "ignorePreRootHistory": False,
+            **self.katago_overrides,
         }
         self.game.katrain.log(f"[HumanStyleStrategy] Override settings for engine: {override_settings}", OUTPUT_DEBUG)
 
@@ -1632,6 +1687,7 @@ class HumanStyleStrategy(AIStrategy):
             callback=set_analysis,
             error_callback=set_error,
             priority=PRIORITY_EXTRA_AI_QUERY,
+            visits=self.katago_visits,
             include_policy=True,
             extra_settings=override_settings,
         )
@@ -1736,14 +1792,18 @@ class HumanStyleStrategy(AIStrategy):
         return move, ai_thoughts
 
 
-def generate_ai_move(game: Game, ai_mode: str, ai_settings: Dict) -> Tuple[Optional[Move], Optional[GameNode]]:
-    """Generate a move using the selected AI strategy"""
+def generate_ai_move(
+    game: Game, ai_mode: str, ai_settings: Dict, katago_settings: Optional[Dict] = None
+) -> Tuple[Optional[Move], Optional[GameNode]]:
+    """Generate a move using the selected AI strategy, searching with the opponent's KataGo settings if any"""
     # Custom configs may refer to a removed strategy.
     strategy_class = STRATEGY_REGISTRY.get(ai_mode)
     if strategy_class is None:
         game.katrain.log(f"AI strategy '{ai_mode}' not found, falling back to '{AI_DEFAULT}'", OUTPUT_ERROR)
         strategy_class = STRATEGY_REGISTRY[AI_DEFAULT]
-    strategy = strategy_class(game, ai_settings)
+    katago_settings = clean_katago_overrides(katago_settings, log=lambda msg: game.katrain.log(msg, OUTPUT_ERROR))
+    strategy = strategy_class(game, ai_settings, katago_settings)
+    node = strategy.cn
 
     game.katrain.log(f"Generating move using {strategy.__class__.__name__} (mode {ai_mode})", OUTPUT_DEBUG)
     try:
@@ -1752,10 +1812,12 @@ def generate_ai_move(game: Game, ai_mode: str, ai_settings: Dict) -> Tuple[Optio
         game.katrain.log(f"Discarding AI move: {e}", OUTPUT_DEBUG)
         return None, None
 
-    played_node = game.play(move, expected_node=strategy.cn)
+    played_node = game.play(move, expected_node=node)
     if played_node is None:
         game.katrain.log(f"Discarding AI move {move.gtp()}: position changed", OUTPUT_DEBUG)
         return move, None
+    if strategy.katago_settings:
+        ai_thoughts += " KataGo settings: " + ", ".join(f"{k}={v}" for k, v in strategy.katago_settings.items())
     played_node.ai_thoughts = ai_thoughts
     game.katrain.log(f"Move generation complete: {move.gtp()} -- {ai_thoughts}", OUTPUT_DEBUG)
     return move, played_node

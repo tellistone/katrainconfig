@@ -717,6 +717,22 @@ msgstr "Select AI strategy to configure"
 msgid "update ai settings"
 msgstr "Update AI Settings"
 
+msgid "katago settings help"
+msgstr ""
+"KataGo search settings for this opponent. Leave a field blank to keep the "
+"default. Opponents that only use the policy (most of the policy-based ones) "
+"are mainly affected by maxVisits and the human-like model settings; the "
+"human-like settings need the human-like model set in the engine settings."
+
+msgid "katago default"
+msgstr "default"
+
+msgid "reset katago settings"
+msgstr "Reset All to Defaults"
+
+msgid "save katago settings"
+msgstr "Save KataGo Settings"
+
 #. misc errors and info messages
 msgid "sgf written"
 msgstr "SGF with analysis written to {file_name}"

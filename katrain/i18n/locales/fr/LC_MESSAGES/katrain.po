@@ -1096,3 +1096,23 @@ msgid "general:anim_pv_moves"
 msgstr ""
 "Nombre de coups affichés lors de l'animation d'une séquence (0 pour "
 "désactiver)"
+
+#. TODO
+msgid "katago settings help"
+msgstr ""
+"KataGo search settings for this opponent. Leave a field blank to keep the "
+"default. Opponents that only use the policy (most of the policy-based ones) "
+"are mainly affected by maxVisits and the human-like model settings; the "
+"human-like settings need the human-like model set in the engine settings."
+
+#. TODO
+msgid "reset katago settings"
+msgstr "Reset All to Defaults"
+
+#. TODO
+msgid "katago default"
+msgstr "default"
+
+#. TODO
+msgid "save katago settings"
+msgstr "Save KataGo Settings"
