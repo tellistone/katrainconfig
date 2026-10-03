@@ -158,7 +158,8 @@ class KaTrainBase:
             return
         user_ai = self._config.setdefault("ai", {})
         for strategy, defaults in package_ai.items():
-            user_ai[strategy] = {**defaults, **user_ai.get(strategy, {})}
+            user_settings = user_ai.get(strategy)
+            user_ai[strategy] = {**defaults, **(user_settings if isinstance(user_settings, dict) else {})}
 
     def save_config(self, key=None):
         if key is None:

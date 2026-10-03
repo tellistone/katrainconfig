@@ -1,4 +1,5 @@
 import os
+import threading
 from types import SimpleNamespace
 
 import pytest
@@ -53,6 +54,8 @@ class TestAngryHuman:
         katrain = KaTrainBase(force_package_config=True, debug_level=0)
         katrain._config["ai"] = {AI_ANGRY_HUMAN: {"human_kyu_rank": 3}}
         katrain._add_missing_ai_settings()
+        katrain._config["ai"][AI_SIMPLE_OWNERSHIP] = "corrupt"
+        katrain._add_missing_ai_settings()
         assert katrain._config["ai"][AI_ANGRY_HUMAN]["human_kyu_rank"] == 3
         assert katrain._config["ai"][AI_ANGRY_HUMAN]["static_score_utility"] == 0.5
         assert AI_SIMPLE_OWNERSHIP in katrain._config["ai"]
@@ -75,3 +78,47 @@ class TestAngryHuman:
         finally:
             shutdown_human_model_engine(katrain)
             engine.shutdown(finish=False)
+
+    def _strategy(self):
+        main = SimpleNamespace(query_generation=0)
+        game = SimpleNamespace(
+            engines={"B": main, "W": main},
+            katrain=SimpleNamespace(log=lambda *args: None),
+            current_node=SimpleNamespace(player="B"),
+        )
+        settings = {"human_kyu_rank": 13, "static_score_utility": 0.5, "dynamic_score_utility": 0.6}
+        return AngryHumanStrategy(game, settings), main
+
+    def test_dead_human_engine_is_an_error(self):
+        strategy, _ = self._strategy()
+        strategy.human_engine = SimpleNamespace(
+            query_generation=0,
+            katago_process=None,
+            request_analysis=lambda *args, **kwargs: None,
+            check_alive=lambda **kwargs: False,
+        )
+        assert strategy.request_analysis({}) is None  # returns instead of waiting forever
+
+    def test_shutdown_or_new_game_stops_the_wait(self):
+        from katrain.core.ai import AnalysisDiscardedException, shutdown_human_model_engine
+
+        strategy, main = self._strategy()
+        human = SimpleNamespace(
+            query_generation=0,
+            katago_process=object(),
+            thread_lock=threading.RLock(),
+            check_alive=lambda **kwargs: True,
+            shutdown=lambda finish: None,
+        )
+        katrain = SimpleNamespace(_human_model_engine=({}, human))
+        human.request_analysis = lambda *args, **kwargs: shutdown_human_model_engine(katrain)
+        strategy.human_engine = human
+        with pytest.raises(AnalysisDiscardedException):
+            strategy.request_analysis({})
+        assert katrain._human_model_engine == (None, None)
+
+        strategy, main = self._strategy()
+        human.request_analysis = lambda *args, **kwargs: setattr(main, "query_generation", 1)
+        strategy.human_engine = human
+        with pytest.raises(AnalysisDiscardedException):
+            strategy.request_analysis({})

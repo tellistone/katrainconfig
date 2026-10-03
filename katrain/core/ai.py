@@ -2,6 +2,7 @@ import copy
 import heapq
 import math
 import os
+import threading
 import time
 from abc import ABC, abstractmethod
 from typing import Dict, List, Optional, Tuple
@@ -280,11 +281,12 @@ class AIStrategy(ABC):
         pass
 
     def raise_if_discarded(self, engine):
-        """Abort if the engine threw our queries away -- nothing will ever call back for them."""
-        if engine.query_generation != self.query_generations.get(id(engine), engine.query_generation):
-            raise AnalysisDiscardedException(
-                f"analysis for {self.strategy_name} discarded by a new game or an engine restart"
-            )
+        """Abort if the engine threw our queries away, or the game's engines did -- nothing will ever call back."""
+        for e in [engine, *self.game.engines.values()]:
+            if e.query_generation != self.query_generations.get(id(e), e.query_generation):
+                raise AnalysisDiscardedException(
+                    f"analysis for {self.strategy_name} discarded by a new game or an engine restart"
+                )
 
     # Strategies that always search the position themselves, e.g. with their own engine or search settings.
     own_search = False
@@ -340,7 +342,8 @@ class AIStrategy(ABC):
             if error or analysis:
                 break
             time.sleep(0.01)
-            engine.check_alive(exception_if_dead=True)
+            if not engine.check_alive(exception_if_dead=True) and getattr(engine, "katago_process", True) is None:
+                error = True  # a local KataGo that died or was shut down will never answer
 
         if analysis:
             self.game.katrain.log(f"[{self.strategy_name}] Analysis completed successfully", OUTPUT_DEBUG)
@@ -920,6 +923,9 @@ class SimpleOwnershipStrategy(OwnershipBaseStrategy):
         return aimove, ai_thoughts
 
 
+HUMAN_MODEL_ENGINE_LOCK = threading.RLock()
+
+
 def human_model_engine(katrain):
     """A second local KataGo that runs the human-like model as its main model, started on first use.
 
@@ -930,21 +936,25 @@ def human_model_engine(katrain):
     if not model_path or not os.path.isfile(model_path) or resolve_engine_backend(config) != "local":
         return None
     engine_config = {**config, "model": model, "humanlike_model": "", "allow_recovery": False}
-    engine_config_now, engine = getattr(katrain, "_human_model_engine", (None, None))
-    if engine is not None and engine_config_now == engine_config and engine.katago_process is not None:
+    with HUMAN_MODEL_ENGINE_LOCK:  # two AI players may ask at once
+        engine_config_now, engine = getattr(katrain, "_human_model_engine", (None, None))
+        if engine is not None and engine_config_now == engine_config and engine.check_alive():
+            return engine
+        shutdown_human_model_engine(katrain)
+        katrain.log(f"Starting KataGo with the human-like model {model_path}", OUTPUT_INFO)
+        engine = KataGoEngine(katrain, engine_config)
+        katrain._human_model_engine = (engine_config, engine)
         return engine
-    shutdown_human_model_engine(katrain)
-    katrain.log(f"Starting KataGo with the human-like model {model_path}", OUTPUT_INFO)
-    engine = KataGoEngine(katrain, engine_config)
-    katrain._human_model_engine = (engine_config, engine)
-    return engine
 
 
 def shutdown_human_model_engine(katrain, finish=False):
-    _, engine = getattr(katrain, "_human_model_engine", (None, None))
+    with HUMAN_MODEL_ENGINE_LOCK:
+        _, engine = getattr(katrain, "_human_model_engine", (None, None))
+        katrain._human_model_engine = (None, None)
     if engine is not None:
+        with engine.thread_lock:
+            engine.query_generation += 1  # so strategies waiting on it stop waiting
         engine.shutdown(finish=finish)
-    katrain._human_model_engine = (None, None)
 
 
 def human_sl_rank_profile(kyu_rank) -> str:
