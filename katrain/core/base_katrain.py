@@ -146,7 +146,19 @@ class KaTrainBase:
             self.log(f"Failed to load config {config_file}: {e}", OUTPUT_ERROR)
             sys.exit(1)
         self._config = dict(self._config_store)
+        self._add_missing_ai_settings()
         return config_file
+
+    def _add_missing_ai_settings(self):
+        """Fill in AI opponents and options added since the user's config was written, keeping their own values."""
+        try:
+            package_ai = JsonStore(find_package_resource(self.PACKAGE_CONFIG_FILE)).get("ai")
+        except Exception as e:
+            self.log(f"Could not read package AI settings: {e}", OUTPUT_ERROR)
+            return
+        user_ai = self._config.setdefault("ai", {})
+        for strategy, defaults in package_ai.items():
+            user_ai[strategy] = {**defaults, **user_ai.get(strategy, {})}
 
     def save_config(self, key=None):
         if key is None:
