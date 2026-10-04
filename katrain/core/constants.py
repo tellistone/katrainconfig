@@ -140,6 +140,8 @@ AI_OPTION_VALUES = {
     + [(k, f"{1 - k}[strength:dan]") for k in range(0, -9, -1)],
     "modern_style": "bool",
     "pro_year": range(1800, 2024),
+    "pick_scale": [0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 2.5, 3.0, 4.0],
+    "pick_weighting": [x / 10 for x in range(11)],
     "static_score_utility": [x / 20 for x in range(21)],
     "dynamic_score_utility": [x / 20 for x in range(21)],
 }

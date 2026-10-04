@@ -1047,17 +1047,23 @@ class CalibratedHumanStrategy(AngryHumanStrategy):
             return override_move, override_thoughts
 
         legal_policy_moves = [(pol, mv) for pol, mv in policy_moves if not mv.is_pass and pol > 0]
-        n_moves = rank.get_n_moves(legal_policy_moves)
-        # equal weights, as Calibrated Rank; indices keep ties from ever comparing moves
+        pick_scale = self.settings.get("pick_scale", 1.0)
+        n_moves = max(1, round(rank.get_n_moves(legal_policy_moves) * pick_scale))
+        # pick_weighting 0 gives every move an equal chance, as Calibrated Rank; 1 weights moves by their policy.
+        # indices keep ties from ever comparing moves
+        pick_weighting = self.settings.get("pick_weighting", 0.0)
         picked_indices = weighted_selection_without_replacement(
-            [(pol, 1, i) for i, (pol, _) in enumerate(legal_policy_moves)], n_moves
+            [(pol, pol**pick_weighting, i) for i, (pol, _) in enumerate(legal_policy_moves)], n_moves
         )
         picked = sorted((legal_policy_moves[i] for _, _, i in picked_indices), key=lambda pm: -pm[0])
         top_policy_move = policy_moves[0][1]
         if not picked:
             return top_policy_move, f"No legal moves picked, so playing top policy move {top_policy_move.gtp()}. "
         top_pol, top_picked = picked[0]
-        thoughts = f"Picked {len(picked)} random moves for kyu_rank {self.settings['kyu_rank']}, "
+        thoughts = f"Picked {len(picked)} random moves for kyu_rank {self.settings['kyu_rank']}"
+        thoughts += (
+            f" x{pick_scale:g}, weighted by policy^{pick_weighting:g}, " if pick_weighting else f" x{pick_scale:g}, "
+        )
         thoughts += f"top 5 by policy {fmt_moves(picked[:5])}. "
         if top_pol < pass_policy:
             return top_policy_move, thoughts + f"Pass is rated above {top_picked.gtp()}, so playing top policy move."

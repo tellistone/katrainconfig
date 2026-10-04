@@ -960,11 +960,20 @@
         id: help_label
         size_hint: 1,1.25
         text: i18n._('')
-    GridLayout:
+    ScrollView:  # opponents with many options scroll instead of squeezing their rows
         size_hint: 1, 4
-        id: options_grid
-        rows: root.max_options
-        cols: 2
+        do_scroll_x: False
+        bar_width: dp(6)
+        bar_color: 0.6, 0.7, 0.9, 0.9
+        bar_inactive_color: 0.6, 0.7, 0.9, 0.5  # stays visible, so it is clear there is more to scroll to
+        scroll_type: ['bars', 'content']
+        GridLayout:
+            id: options_grid
+            cols: 2
+            size_hint_y: None
+            height: self.minimum_height
+            row_default_height: dp(44)
+            padding: 0, 0, dp(12), 0
     BoxLayout:
         size_hint: 1, 1.5
         orientation: 'horizontal'
