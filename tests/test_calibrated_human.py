@@ -18,6 +18,7 @@ class TestCalibratedHuman:
             assert set(katrain.config(f"ai/{strategy}")) <= set(settings)
         assert settings["human_kyu_rank"] == settings["kyu_rank"]
         assert settings["kyu_rank"] == katrain.config(f"ai/{AI_RANK}")["kyu_rank"]
+        assert settings["pick_scale"] == 1.0 and settings["pick_weighting"] == 0.0  # Calibrated Rank's behaviour
         assert settings["static_score_utility"] > 0.1 and settings["dynamic_score_utility"] > 0.3
         assert ai_rank_estimation(AI_CALIBRATED_HUMAN, settings) == ai_rank_estimation(
             AI_RANK, katrain.config(f"ai/{AI_RANK}")
@@ -58,14 +59,19 @@ class TestCalibratedHuman:
         katrain._config["engine"]["humanlike_model"] = os.environ["KATRAIN_HUMAN_MODEL"]
         engine = KataGoEngine(katrain, katrain.config("engine"))
         game = Game(katrain, engine)
+        settings = katrain.config(f"ai/{AI_CALIBRATED_HUMAN}")
         try:
-            for _ in range(6):
+            for i in range(6):
+                if i >= 3:  # fewer picks, leaning towards likely moves
+                    settings = {**settings, "pick_scale": 0.25, "pick_weighting": 1.0}
                 allowed.clear()
-                move, node = generate_ai_move(game, AI_CALIBRATED_HUMAN, katrain.config(f"ai/{AI_CALIBRATED_HUMAN}"))
+                move, node = generate_ai_move(game, AI_CALIBRATED_HUMAN, settings)
                 katrain.log(f"Calibrated Human Style -> {move}: {node.ai_thoughts}", 0)
                 assert move.coords is not None
                 assert node.ai_thoughts.startswith("Human-like model at rank_4k.")
                 assert allowed[0] is None  # the full search for the policy
+                if i >= 3 and "Picked" in node.ai_thoughts:
+                    assert "x0.25, weighted by policy^1" in node.ai_thoughts
                 if "Searched only these" in node.ai_thoughts:
                     assert len(allowed) == 2 and move.gtp() in allowed[1]
         finally:

@@ -12,7 +12,7 @@ import urllib3
 from kivy.app import App
 from kivy.clock import Clock
 from kivy.metrics import dp
-from kivy.properties import BooleanProperty, ListProperty, NumericProperty, ObjectProperty, StringProperty
+from kivy.properties import BooleanProperty, ListProperty, ObjectProperty, StringProperty
 from kivy.uix.anchorlayout import AnchorLayout
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.gridlayout import GridLayout
@@ -387,7 +387,6 @@ class DescriptionLabel(Label):
 
 
 class ConfigAIPopup(QuickConfigGui):
-    max_options = NumericProperty(6)
     katago_button_text = StringProperty("")
 
     def __init__(self, katrain):
@@ -431,10 +430,13 @@ class ConfigAIPopup(QuickConfigGui):
         strategy = self.ai_select.selected[1]
         mode_settings = self.katrain.config(f"ai/{strategy}")
         self.options_grid.clear_widgets()
-        self.max_options = max(6, len(mode_settings))
+        row_height = dp(44)
         self.help_label.text = i18n._(strategy.replace("ai:", "aihelp:"))
         for k, v in sorted(mode_settings.items(), key=lambda kv: (kv[0] not in AI_KEY_PROPERTIES, kv[0])):
-            self.options_grid.add_widget(DescriptionLabel(text=k, size_hint_x=0.275))
+            label = DescriptionLabel(text=k.replace("_", " "), size_hint=(0.275, None))  # spaces let long names wrap
+            label.bind(texture_size=lambda lbl, ts: setattr(lbl, "height", max(row_height, ts[1] + dp(6))))
+            label.height = row_height
+            self.options_grid.add_widget(label)
             if k in AI_OPTION_VALUES:
                 values = AI_OPTION_VALUES[k]
                 if values == "bool":
@@ -451,13 +453,15 @@ class ConfigAIPopup(QuickConfigGui):
                     )
                     widget.set_value(v)
                     widget.textbox.bind(text=self.estimate_rank_from_options)
-                self.options_grid.add_widget(wrap_anchor(widget))
+                self.options_grid.add_widget(wrap_anchor(widget, height=row_height))
             else:
                 self.options_grid.add_widget(
-                    wrap_anchor(LabelledFloatInput(text=str(v), input_property=f"ai/{strategy}/{k}"))
+                    wrap_anchor(
+                        LabelledFloatInput(text=str(v), input_property=f"ai/{strategy}/{k}"),
+                        height=row_height,
+                    )
                 )
-        for _ in range((self.max_options - len(mode_settings)) * 2):
-            self.options_grid.add_widget(Label(size_hint_x=None))
+        self.options_grid.parent.scroll_y = 1
         self.update_katago_button()
         Clock.schedule_once(self.estimate_rank_from_options)
 
