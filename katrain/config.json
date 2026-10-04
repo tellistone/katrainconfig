@@ -134,6 +134,14 @@
             "attach_penalty": 1,
             "tenuki_penalty": 0.5
         },
+        "ai:randomhuman": {
+            "kyu_rank": 4.0,
+            "pick_scale": 1.0,
+            "pick_weighting": 0.0,
+            "static_score_utility": 0.5,
+            "max_points_lost": 1.75,
+            "min_visits": 3
+        },
         "ai:p:weighted": {
             "weaken_fac": 1.25,
             "pick_override": 1.0,

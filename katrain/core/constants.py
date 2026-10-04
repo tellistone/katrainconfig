@@ -52,6 +52,7 @@ AI_TERRITORY = "ai:p:territory"
 AI_RANK = "ai:p:rank"
 AI_SIMPLE_OWNERSHIP = "ai:simple"
 AI_CALIBRATED_HUMAN = "ai:calibratedhuman"
+AI_RANDOM_HUMAN = "ai:randomhuman"
 AI_SETTLE_STONES = "ai:settle"
 AI_HUMAN = "ai:human"
 AI_PRO = "ai:pro"
@@ -64,6 +65,7 @@ AI_STRATEGIES_ENGINE = [
     AI_SCORELOSS,
     AI_SIMPLE_OWNERSHIP,
     AI_CALIBRATED_HUMAN,
+    AI_RANDOM_HUMAN,
     AI_JIGO,
     AI_ANTIMIRROR,
 ]
@@ -76,6 +78,7 @@ AI_STRATEGIES_RECOMMENDED_ORDER = [
     AI_PRO,
     AI_RANK,
     AI_CALIBRATED_HUMAN,
+    AI_RANDOM_HUMAN,
     AI_HANDICAP,
     AI_SIMPLE_OWNERSHIP,
     AI_SCORELOSS,
@@ -105,9 +108,19 @@ AI_STRENGTH = {  # dan ranks, backup if model is missing. TODO: remove some?
     AI_RANK: float("nan"),
     AI_SIMPLE_OWNERSHIP: 2,
     AI_CALIBRATED_HUMAN: float("nan"),  # depends on the human-like model, rank and visits
+    AI_RANDOM_HUMAN: float("nan"),
     AI_SETTLE_STONES: 2,
     AI_HUMAN: float("nan"),
     AI_PRO: float("nan"),
+}
+
+# Random Ranked Human's hidden options, rolled to one decimal place for each AI player in each game.
+AI_RANDOM_HUMAN_RANGES = {
+    "attach_penalty": (-3.0, 3.0),
+    "dynamic_score_utility": (0.1, 1.0),
+    "opponent_fac": (-2.0, 2.0),
+    "settled_weight": (-2.0, 2.0),
+    "tenuki_penalty": (-3.0, 3.0),
 }
 
 AI_OPTION_VALUES = {
