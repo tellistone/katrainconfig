@@ -14,7 +14,7 @@ from katrain.core.constants import (
     STATUS_ANALYSIS,
     STATUS_ERROR,
 )
-from katrain.core.lang import rank_label
+from katrain.core.lang import i18n, rank_label
 from katrain.gui.sound import play_sound, stop_sound
 from katrain.gui.theme import Theme
 from katrain.gui.widgets.panels import AnalysisToggle, CollapsablePanel
@@ -162,6 +162,15 @@ class ControlsPanel(BoxLayout):
             info += self.active_comment_node.comment(
                 teach=katrain.players_info[self.active_comment_node.player].being_taught, details=details
             )
+            if (
+                details
+                and katrain.play_analyze_mode == MODE_PLAY
+                and last_player_was_ai_playing_human
+                and self.active_comment_node is current_node.parent
+                and current_node.ai_thoughts
+            ):
+                # showing the human's last move, so also show what the AI thought about its reply
+                info += "\n" + i18n._("Info:AI thoughts").format(thoughts=current_node.ai_thoughts)
 
         if self.active_comment_node.analysis_exists:
             self.stats.score = self.active_comment_node.format_score() or ""

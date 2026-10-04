@@ -2,6 +2,7 @@ import copy
 import heapq
 import math
 import os
+import random
 import threading
 import time
 from abc import ABC, abstractmethod
@@ -23,6 +24,8 @@ from katrain.core.constants import (
     AI_PICK_ELO_GRID,
     AI_POLICY,
     AI_PRO,
+    AI_RANDOM_HUMAN,
+    AI_RANDOM_HUMAN_RANGES,
     AI_RANK,
     AI_SCORELOSS,
     AI_SCORELOSS_ELO,
@@ -92,7 +95,7 @@ def interp2d(gridspec, x, y):
 def ai_rank_estimation(strategy, settings) -> int:
     if strategy in [AI_DEFAULT, AI_HANDICAP, AI_JIGO, AI_PRO]:
         return 9
-    if strategy in [AI_RANK, AI_CALIBRATED_HUMAN]:
+    if strategy in [AI_RANK, AI_CALIBRATED_HUMAN, AI_RANDOM_HUMAN]:
         return 1 - settings["kyu_rank"]
     if strategy == AI_HUMAN:
         return 1 - settings["human_kyu_rank"]
@@ -1080,6 +1083,45 @@ class CalibratedHumanStrategy(HumanModelStrategy):
         self.use_analysis(analysis)
         move, simple_thoughts = SimpleOwnershipStrategy.generate_move(self)
         return move, thoughts + "Searched only these. " + simple_thoughts
+
+
+def random_human_personality(game: Game, player: str) -> Dict:
+    """Random Ranked Human's hidden options for this player, rolled once per game so each AI player differs"""
+    personalities = game.ai_personalities
+    if player not in personalities:
+        personalities[player] = {
+            k: random.randint(round(lo * 10), round(hi * 10)) / 10 for k, (lo, hi) in AI_RANDOM_HUMAN_RANGES.items()
+        }
+    return personalities[player]
+
+
+@register_strategy(AI_RANDOM_HUMAN)
+class RandomRankedHumanStrategy(CalibratedHumanStrategy):
+    """Calibrated Human Style with a random personality: Simple Style's options and the dynamic score utility are
+    rolled for each AI player at the start of a game, and the human-like model plays at kyu_rank"""
+
+    # KataGo settings that would replace the personality's dynamic score utility or the rank the human-like model plays
+    PERSONALITY_KATAGO_SETTINGS = ["dynamicScoreUtilityFactor", "humanSLProfile"]
+
+    def __init__(self, game: Game, ai_settings: Dict, *args, **kwargs):
+        super().__init__(game, ai_settings, *args, **kwargs)
+        self.personality = {}
+        ignored = [k for k in self.PERSONALITY_KATAGO_SETTINGS if k in self.katago_overrides]
+        if ignored:
+            self.game.katrain.log(f"[{self.strategy_name}] Ignoring KataGo settings {ignored}", OUTPUT_ERROR)
+            self.katago_overrides = {k: v for k, v in self.katago_overrides.items() if k not in ignored}
+            self.katago_settings = {k: v for k, v in self.katago_settings.items() if k not in ignored}
+
+    def use_personality(self):
+        self.personality = random_human_personality(self.game, self.cn.next_player)
+        self.settings = {**self.settings, **self.personality, "human_kyu_rank": self.settings["kyu_rank"]}
+
+    def generate_move(self) -> Tuple[Move, str]:
+        self.use_personality()
+        move, thoughts = super().generate_move()
+        personality = ", ".join(f"{k.replace('_', ' ')} {v:.1f}" for k, v in self.personality.items())
+        rank = self.settings["human_kyu_rank"]
+        return move, f"Personality: {personality}, human kyu rank {rank:g} ({human_sl_rank_profile(rank)}). " + thoughts
 
 
 @register_strategy(AI_SETTLE_STONES)

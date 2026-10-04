@@ -1088,3 +1088,16 @@ msgstr ""
 "KataGo's human-like model playing as human kyu rank. The picks are searched "
 "with the score utilities raised, then chosen between like Simple Style. "
 "Needs a human-like model in the engine settings."
+
+#. TODO
+msgid "aihelp:randomhuman"
+msgstr ""
+"Calibrated Human Style with its own personality: attach penalty, tenuki "
+"penalty, settled weight, opponent fac and dynamic score utility are picked "
+"at random for each AI player when a game starts, and shown in the details "
+"after each move. The human-like model plays at kyu rank. Needs a human-like "
+"model in the engine settings."
+
+#. TODO
+msgid "ai:randomhuman"
+msgstr "Random Ranked Human"
