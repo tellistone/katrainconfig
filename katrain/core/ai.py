@@ -9,7 +9,6 @@ from typing import Dict, List, Optional, Tuple
 
 from katrain.core.constants import (
     ADDITIONAL_MOVE_ORDER,
-    AI_ANGRY_HUMAN,
     AI_ANTIMIRROR,
     AI_CALIBRATED_HUMAN,
     AI_DEFAULT,
@@ -95,7 +94,7 @@ def ai_rank_estimation(strategy, settings) -> int:
         return 9
     if strategy in [AI_RANK, AI_CALIBRATED_HUMAN]:
         return 1 - settings["kyu_rank"]
-    if strategy in [AI_HUMAN, AI_ANGRY_HUMAN]:  # the rank the human-like model imitates, not a calibrated strength
+    if strategy == AI_HUMAN:
         return 1 - settings["human_kyu_rank"]
 
     if strategy in [AI_WEIGHTED, AI_SCORELOSS, AI_LOCAL, AI_TENUKI, AI_TERRITORY, AI_INFLUENCE, AI_PICK]:
@@ -985,9 +984,9 @@ def human_sl_rank_profile(kyu_rank) -> str:
     return f"rank_{1 - rank}d" if rank <= 0 else f"rank_{rank}k"
 
 
-@register_strategy(AI_ANGRY_HUMAN)
-class AngryHumanStrategy(SimpleOwnershipStrategy):
-    """Simple Style, searched with KataGo's human-like model at a chosen rank, valuing score much more than usual"""
+class HumanModelStrategy(SimpleOwnershipStrategy):
+    """Base for opponents that search with KataGo's human-like model at a chosen rank, valuing score more than usual.
+    Subclasses choose the move in choose_move."""
 
     own_search = True
 
@@ -1029,7 +1028,7 @@ class AngryHumanStrategy(SimpleOwnershipStrategy):
 
 
 @register_strategy(AI_CALIBRATED_HUMAN)
-class CalibratedHumanStrategy(AngryHumanStrategy):
+class CalibratedHumanStrategy(HumanModelStrategy):
     """Calibrated Rank's random pick of candidate moves, from the human-like model's policy, then Simple Style's
     choice among those candidates after a search restricted to them"""
 

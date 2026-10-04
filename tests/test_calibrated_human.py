@@ -5,7 +5,7 @@ import pytest
 
 from katrain.core.ai import ai_rank_estimation
 from katrain.core.base_katrain import KaTrainBase
-from katrain.core.constants import AI_ANGRY_HUMAN, AI_CALIBRATED_HUMAN, AI_RANK, AI_SIMPLE_OWNERSHIP
+from katrain.core.constants import AI_CALIBRATED_HUMAN, AI_RANK, AI_SIMPLE_OWNERSHIP
 from katrain.core.engine import KataGoEngine
 from katrain.core.game import Game
 
@@ -14,7 +14,7 @@ class TestCalibratedHuman:
     def test_defaults(self):
         katrain = KaTrainBase(force_package_config=True, debug_level=0)
         settings = katrain.config(f"ai/{AI_CALIBRATED_HUMAN}")
-        for strategy in [AI_RANK, AI_SIMPLE_OWNERSHIP, AI_ANGRY_HUMAN]:
+        for strategy in [AI_RANK, AI_SIMPLE_OWNERSHIP]:
             assert set(katrain.config(f"ai/{strategy}")) <= set(settings)
         assert settings["human_kyu_rank"] == settings["kyu_rank"]
         assert settings["kyu_rank"] == katrain.config(f"ai/{AI_RANK}")["kyu_rank"]
