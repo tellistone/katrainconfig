@@ -51,7 +51,6 @@ AI_INFLUENCE = "ai:p:influence"
 AI_TERRITORY = "ai:p:territory"
 AI_RANK = "ai:p:rank"
 AI_SIMPLE_OWNERSHIP = "ai:simple"
-AI_ANGRY_HUMAN = "ai:angryhuman"
 AI_CALIBRATED_HUMAN = "ai:calibratedhuman"
 AI_SETTLE_STONES = "ai:settle"
 AI_HUMAN = "ai:human"
@@ -64,7 +63,6 @@ AI_STRATEGIES_ENGINE = [
     AI_HANDICAP,
     AI_SCORELOSS,
     AI_SIMPLE_OWNERSHIP,
-    AI_ANGRY_HUMAN,
     AI_CALIBRATED_HUMAN,
     AI_JIGO,
     AI_ANTIMIRROR,
@@ -80,7 +78,6 @@ AI_STRATEGIES_RECOMMENDED_ORDER = [
     AI_CALIBRATED_HUMAN,
     AI_HANDICAP,
     AI_SIMPLE_OWNERSHIP,
-    AI_ANGRY_HUMAN,
     AI_SCORELOSS,
     AI_POLICY,
     AI_WEIGHTED,
@@ -107,8 +104,7 @@ AI_STRENGTH = {  # dan ranks, backup if model is missing. TODO: remove some?
     AI_TERRITORY: -7,
     AI_RANK: float("nan"),
     AI_SIMPLE_OWNERSHIP: 2,
-    AI_ANGRY_HUMAN: float("nan"),  # depends on the human-like model, rank and visits
-    AI_CALIBRATED_HUMAN: float("nan"),
+    AI_CALIBRATED_HUMAN: float("nan"),  # depends on the human-like model, rank and visits
     AI_SETTLE_STONES: 2,
     AI_HUMAN: float("nan"),
     AI_PRO: float("nan"),
