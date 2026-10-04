@@ -135,12 +135,12 @@
             "tenuki_penalty": 0.5
         },
         "ai:randomhuman": {
-            "kyu_rank": 4.0,
+            "kyu_rank": 13.0,
             "pick_scale": 1.0,
-            "pick_weighting": 0.0,
+            "pick_weighting": 0.3,
             "static_score_utility": 0.5,
-            "max_points_lost": 1.75,
-            "min_visits": 3
+            "max_points_lost": 300.0,
+            "min_visits": 1
         },
         "ai:p:weighted": {
             "weaken_fac": 1.25,
@@ -191,6 +191,12 @@
         },
         "ai:pro": {
             "pro_year": 1914
+        }
+    },
+    "ai_katago": {
+        "ai:randomhuman": {
+            "winLossUtilityFactor": 0.7,
+            "playoutDoublingAdvantage": 0.6
         }
     },
     "ui_state": {

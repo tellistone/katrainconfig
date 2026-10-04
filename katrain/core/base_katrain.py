@@ -18,6 +18,7 @@ from katrain.core.constants import (
     PLAYING_NORMAL,
     PLAYING_TEACHING,
 )
+from katrain.core.katago_settings import KATAGO_SETTINGS_CONFIG_SECTION
 from katrain.core.utils import find_package_resource
 
 
@@ -152,7 +153,8 @@ class KaTrainBase:
     def _add_missing_ai_settings(self):
         """Fill in AI opponents and options added since the user's config was written, keeping their own values."""
         try:
-            package_ai = JsonStore(find_package_resource(self.PACKAGE_CONFIG_FILE)).get("ai")
+            package_config = dict(JsonStore(find_package_resource(self.PACKAGE_CONFIG_FILE)))
+            package_ai = package_config["ai"]
         except Exception as e:
             self.log(f"Could not read package AI settings: {e}", OUTPUT_ERROR)
             return
@@ -160,6 +162,14 @@ class KaTrainBase:
         for strategy, defaults in package_ai.items():
             user_settings = user_ai.get(strategy)
             user_ai[strategy] = {**defaults, **(user_settings if isinstance(user_settings, dict) else {})}
+        # Default KataGo settings for opponents the user has never set any for. Clearing them saves an empty entry.
+        package_katago = package_config.get(KATAGO_SETTINGS_CONFIG_SECTION, {})
+        if not isinstance(self._config.get(KATAGO_SETTINGS_CONFIG_SECTION), dict):
+            self._config[KATAGO_SETTINGS_CONFIG_SECTION] = {}
+        user_katago = self._config[KATAGO_SETTINGS_CONFIG_SECTION]
+        for strategy, defaults in package_katago.items():
+            if not isinstance(user_katago.get(strategy), dict):
+                user_katago[strategy] = dict(defaults)
 
     def save_config(self, key=None):
         if key is None:

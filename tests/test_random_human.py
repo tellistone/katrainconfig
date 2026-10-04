@@ -15,6 +15,7 @@ from katrain.core.constants import (
 )
 from katrain.core.engine import KataGoEngine
 from katrain.core.game import Game
+from katrain.core.katago_settings import KATAGO_SETTINGS_CONFIG_SECTION, clean_katago_overrides
 
 HIDDEN = {
     "attach_penalty",
@@ -43,9 +44,31 @@ class TestRandomHuman:
         calibrated = katrain.config(f"ai/{AI_CALIBRATED_HUMAN}")
         assert not HIDDEN & set(settings)  # not shown in the AI settings
         assert set(settings) | HIDDEN == set(calibrated)
-        assert {k: calibrated[k] for k in settings} == settings
+        assert settings == {
+            "kyu_rank": 13,
+            "max_points_lost": 300,
+            "min_visits": 1,
+            "pick_scale": 1.0,
+            "pick_weighting": 0.3,
+            "static_score_utility": 0.5,
+        }
+        katago = katrain.config(f"{KATAGO_SETTINGS_CONFIG_SECTION}/{AI_RANDOM_HUMAN}")
+        assert katago == {"winLossUtilityFactor": 0.7, "playoutDoublingAdvantage": 0.6}
+        assert clean_katago_overrides(katago) == katago  # valid KataGo settings
         assert AI_RANDOM_HUMAN in AI_STRATEGIES and AI_RANDOM_HUMAN in AI_STRATEGIES_RECOMMENDED_ORDER
-        assert ai_rank_estimation(AI_RANDOM_HUMAN, settings) == ai_rank_estimation(AI_CALIBRATED_HUMAN, calibrated)
+        assert ai_rank_estimation(AI_RANDOM_HUMAN, settings) == -12  # 13k
+
+    def test_katago_defaults_for_existing_configs(self):
+        katrain = KaTrainBase(force_package_config=True, debug_level=0)
+        katrain._config.pop(KATAGO_SETTINGS_CONFIG_SECTION)  # a config from before these defaults
+        katrain._add_missing_ai_settings()
+        assert katrain.config(f"{KATAGO_SETTINGS_CONFIG_SECTION}/{AI_RANDOM_HUMAN}")["winLossUtilityFactor"] == 0.7
+        katrain._config[KATAGO_SETTINGS_CONFIG_SECTION][AI_RANDOM_HUMAN] = {}  # the user cleared them
+        katrain._add_missing_ai_settings()
+        assert katrain.config(f"{KATAGO_SETTINGS_CONFIG_SECTION}/{AI_RANDOM_HUMAN}") == {}
+        katrain._config[KATAGO_SETTINGS_CONFIG_SECTION] = "corrupt"
+        katrain._add_missing_ai_settings()
+        assert katrain.config(f"{KATAGO_SETTINGS_CONFIG_SECTION}/{AI_RANDOM_HUMAN}")["winLossUtilityFactor"] == 0.7
 
     def test_personality_ranges(self, monkeypatch):
         assert set(AI_RANDOM_HUMAN_RANGES) | {"human_kyu_rank"} == HIDDEN
@@ -116,16 +139,18 @@ class TestRandomHuman:
         engine = KataGoEngine(katrain, katrain.config("engine"))
         game = Game(katrain, engine)
         settings = katrain.config(f"ai/{AI_RANDOM_HUMAN}")
+        katago = katrain.config(f"{KATAGO_SETTINGS_CONFIG_SECTION}/{AI_RANDOM_HUMAN}")
         thoughts = {"B": set(), "W": set()}
         try:
             for _ in range(6):
                 player = game.current_node.next_player
-                move, node = generate_ai_move(game, AI_RANDOM_HUMAN, settings)
+                move, node = generate_ai_move(game, AI_RANDOM_HUMAN, settings, katago)
                 katrain.log(f"Random Ranked Human -> {move}: {node.ai_thoughts}", 0)
                 assert move.coords is not None
                 personality = node.ai_thoughts.split(". ")[0]
                 assert personality.startswith("Personality: attach penalty ")
-                assert "Human-like model at rank_4k." in node.ai_thoughts
+                assert "human kyu rank 13 (rank_13k). Human-like model at rank_13k." in node.ai_thoughts
+                assert "winLossUtilityFactor=0.7, playoutDoublingAdvantage=0.6" in node.ai_thoughts
                 thoughts[player].add(personality)
             assert len(thoughts["B"]) == 1 and len(thoughts["W"]) == 1  # the same all game
             assert thoughts["B"] != thoughts["W"]

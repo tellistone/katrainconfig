@@ -558,10 +558,7 @@ class KataGoSettingsPopup(BoxLayout):
             return
         self.error_message = ""
         section = self.katrain._config.setdefault(KATAGO_SETTINGS_CONFIG_SECTION, {})
-        if settings:
-            section[self.strategy] = settings
-        else:
-            section.pop(self.strategy, None)
+        section[self.strategy] = settings  # kept even when empty, so package defaults don't come back
         self.katrain.log(f"KataGo settings for {self.strategy}: {settings}", OUTPUT_DEBUG)
         self.katrain.save_config(KATAGO_SETTINGS_CONFIG_SECTION)
         if self.on_saved:
