@@ -26,6 +26,7 @@ from katrain.core.constants import (
     AI_PRO,
     AI_RANDOM_HUMAN,
     AI_RANDOM_HUMAN_RANGES,
+    AI_RANDOM_HUMAN_ZERO_CHANCE,
     AI_RANK,
     AI_SCORELOSS,
     AI_SCORELOSS_ELO,
@@ -1090,7 +1091,10 @@ def random_human_personality(game: Game, player: str) -> Dict:
     personalities = game.ai_personalities
     if player not in personalities:
         personalities[player] = {
-            k: random.randint(round(lo * 10), round(hi * 10)) / 10 for k, (lo, hi) in AI_RANDOM_HUMAN_RANGES.items()
+            k: 0.0
+            if random.random() < AI_RANDOM_HUMAN_ZERO_CHANCE
+            else random.randint(round(lo * 10), round(hi * 10)) / 10
+            for k, (lo, hi) in AI_RANDOM_HUMAN_RANGES.items()
         }
     return personalities[player]
 

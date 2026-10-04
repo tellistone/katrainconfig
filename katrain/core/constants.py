@@ -116,12 +116,13 @@ AI_STRENGTH = {  # dan ranks, backup if model is missing. TODO: remove some?
 
 # Random Ranked Human's hidden options, rolled to one decimal place for each AI player in each game.
 AI_RANDOM_HUMAN_RANGES = {
-    "attach_penalty": (-3.0, 3.0),
-    "dynamic_score_utility": (0.1, 1.0),
-    "opponent_fac": (-2.0, 2.0),
-    "settled_weight": (-2.0, 2.0),
+    "attach_penalty": (-2.0, 2.0),
+    "dynamic_score_utility": (0.5, 1.0),
+    "opponent_fac": (-1.0, 1.0),
+    "settled_weight": (-1.0, 2.0),
     "tenuki_penalty": (-3.0, 3.0),
 }
+AI_RANDOM_HUMAN_ZERO_CHANCE = 0.34  # each option is zero this often instead of rolled
 
 AI_OPTION_VALUES = {
     "kyu_rank": [(k, f"{k}[strength:kyu]") for k in range(15, 0, -1)]

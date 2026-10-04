@@ -10,6 +10,7 @@ from katrain.core.constants import (
     AI_CALIBRATED_HUMAN,
     AI_RANDOM_HUMAN,
     AI_RANDOM_HUMAN_RANGES,
+    AI_RANDOM_HUMAN_ZERO_CHANCE,
     AI_STRATEGIES,
     AI_STRATEGIES_RECOMMENDED_ORDER,
 )
@@ -72,16 +73,33 @@ class TestRandomHuman:
 
     def test_personality_ranges(self, monkeypatch):
         assert set(AI_RANDOM_HUMAN_RANGES) | {"human_kyu_rank"} == HIDDEN
-        for _ in range(100):
-            for k, v in random_human_personality(fake_game(), "B").items():
-                lo, hi = AI_RANDOM_HUMAN_RANGES[k]
-                assert lo <= v <= hi and round(v, 1) == v
-        for pick, end in [(min, 0), (max, 1)]:  # both ends of each range can come up
+        assert AI_RANDOM_HUMAN_RANGES == {
+            "attach_penalty": (-2.0, 2.0),
+            "dynamic_score_utility": (0.5, 1.0),
+            "opponent_fac": (-1.0, 1.0),
+            "settled_weight": (-1.0, 2.0),
+            "tenuki_penalty": (-3.0, 3.0),
+        }
+        assert AI_RANDOM_HUMAN_ZERO_CHANCE == 0.34
+        rolls = [random_human_personality(fake_game(), "B") for _ in range(2000)]
+        for k, (lo, hi) in AI_RANDOM_HUMAN_RANGES.items():
+            values = [p[k] for p in rolls]
+            assert all(v == 0 or (lo <= v <= hi and round(v, 1) == v) for v in values)
+            if lo > 0:  # zero is outside this range, so every zero came from the 34%
+                assert 0.27 < values.count(0) / len(values) < 0.41
+        all_zero = sum(all(v == 0 for v in p.values()) for p in rolls)
+        assert all_zero < 60  # each option gets its own 34% chance, not one chance for all five (~9 expected)
+        for chance, pick, expected in [(0.33, min, 0.0), (0.34, min, "lo"), (0.99, max, "hi")]:
+            monkeypatch.setattr(random, "random", lambda chance=chance: chance)
             monkeypatch.setattr(random, "randint", lambda a, b, pick=pick: pick(a, b))
             for k, v in random_human_personality(fake_game(), "B").items():
-                assert v == AI_RANDOM_HUMAN_RANGES[k][end]
+                lo, hi = AI_RANDOM_HUMAN_RANGES[k]
+                assert v == {0.0: 0.0, "lo": lo, "hi": hi}[expected]
 
-    def test_personality_per_player_and_game(self):
+    def test_personality_per_player_and_game(self, monkeypatch):
+        rng = random.Random(1)  # with zeros common, two rolls could match by chance
+        monkeypatch.setattr(random, "random", rng.random)
+        monkeypatch.setattr(random, "randint", rng.randint)
         game = fake_game()
         black = random_human_personality(game, "B")
         assert random_human_personality(game, "B") is black  # fixed for the game
@@ -107,7 +125,7 @@ class TestRandomHuman:
         monkeypatch.setattr(CalibratedHumanStrategy, "generate_move", lambda self: ("move", "Thoughts."))
         game = fake_game()
         game.ai_personalities["B"] = {
-            "attach_penalty": -3.0,
+            "attach_penalty": -2.0,
             "dynamic_score_utility": 1.0,
             "opponent_fac": 0.5,
             "settled_weight": 2.0,
@@ -115,7 +133,7 @@ class TestRandomHuman:
         }
         move, thoughts = RandomRankedHumanStrategy(game, {"kyu_rank": 4.0}).generate_move()
         assert thoughts == (
-            "Personality: attach penalty -3.0, dynamic score utility 1.0, opponent fac 0.5, settled weight 2.0, "
+            "Personality: attach penalty -2.0, dynamic score utility 1.0, opponent fac 0.5, settled weight 2.0, "
             "tenuki penalty 0.0, human kyu rank 4 (rank_4k). Thoughts."
         )
 
