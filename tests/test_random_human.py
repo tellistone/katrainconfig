@@ -9,6 +9,7 @@ from katrain.core.base_katrain import KaTrainBase
 from katrain.core.constants import (
     AI_CALIBRATED_HUMAN,
     AI_RANDOM_HUMAN,
+    AI_RANDOM_HUMAN_NEVER_ZERO,
     AI_RANDOM_HUMAN_RANGES,
     AI_RANDOM_HUMAN_ZERO_CHANCE,
     AI_STRATEGIES,
@@ -77,24 +78,32 @@ class TestRandomHuman:
             "attach_penalty": (-2.0, 2.0),
             "dynamic_score_utility": (0.5, 1.0),
             "opponent_fac": (-1.0, 1.0),
-            "settled_weight": (-1.0, 2.0),
+            "settled_weight": (-0.3, 1.0),
             "tenuki_penalty": (-3.0, 3.0),
         }
-        assert AI_RANDOM_HUMAN_ZERO_CHANCE == 0.34
+        assert AI_RANDOM_HUMAN_ZERO_CHANCE == 0.5 and AI_RANDOM_HUMAN_NEVER_ZERO == {"dynamic_score_utility"}
         rolls = [random_human_personality(fake_game(), "B") for _ in range(2000)]
         for k, (lo, hi) in AI_RANDOM_HUMAN_RANGES.items():
             values = [p[k] for p in rolls]
             assert all(v == 0 or (lo <= v <= hi and round(v, 1) == v) for v in values)
-            if lo > 0:  # zero is outside this range, so every zero came from the 34%
-                assert 0.27 < values.count(0) / len(values) < 0.41
-        all_zero = sum(all(v == 0 for v in p.values()) for p in rolls)
-        assert all_zero < 60  # each option gets its own 34% chance, not one chance for all five (~9 expected)
-        for chance, pick, expected in [(0.33, min, 0.0), (0.34, min, "lo"), (0.99, max, "hi")]:
+            zeros = values.count(0) / len(values)
+            if k in AI_RANDOM_HUMAN_NEVER_ZERO:
+                assert zeros == 0
+            else:  # the 50%, plus rolling a zero in the range
+                rolled = 1 / (round(hi * 10) - round(lo * 10) + 1)
+                assert abs(zeros - (0.5 + 0.5 * rolled)) < 0.06
+        zeroable = set(AI_RANDOM_HUMAN_RANGES) - AI_RANDOM_HUMAN_NEVER_ZERO
+        all_zero = sum(all(p[k] == 0 for k in zeroable) for p in rolls)
+        assert all_zero < 400  # each option gets its own 50% chance, not one chance for all of them (~140 expected)
+        for chance, pick, expected in [(0.49, min, "zero"), (0.5, min, "lo"), (0.99, max, "hi")]:
             monkeypatch.setattr(random, "random", lambda chance=chance: chance)
             monkeypatch.setattr(random, "randint", lambda a, b, pick=pick: pick(a, b))
             for k, v in random_human_personality(fake_game(), "B").items():
                 lo, hi = AI_RANDOM_HUMAN_RANGES[k]
-                assert v == {0.0: 0.0, "lo": lo, "hi": hi}[expected]
+                if expected == "zero" and k not in AI_RANDOM_HUMAN_NEVER_ZERO:
+                    assert v == 0.0
+                else:
+                    assert v == (hi if expected == "hi" else lo)
 
     def test_personality_per_player_and_game(self, monkeypatch):
         rng = random.Random(1)  # with zeros common, two rolls could match by chance
@@ -128,12 +137,12 @@ class TestRandomHuman:
             "attach_penalty": -2.0,
             "dynamic_score_utility": 1.0,
             "opponent_fac": 0.5,
-            "settled_weight": 2.0,
+            "settled_weight": -0.3,
             "tenuki_penalty": 0.0,
         }
         move, thoughts = RandomRankedHumanStrategy(game, {"kyu_rank": 4.0}).generate_move()
         assert thoughts == (
-            "Personality: attach penalty -2.0, dynamic score utility 1.0, opponent fac 0.5, settled weight 2.0, "
+            "Personality: attach penalty -2.0, dynamic score utility 1.0, opponent fac 0.5, settled weight -0.3, "
             "tenuki penalty 0.0, human kyu rank 4 (rank_4k). Thoughts."
         )
 
@@ -171,7 +180,8 @@ class TestRandomHuman:
                 assert "winLossUtilityFactor=0.7, playoutDoublingAdvantage=0.6" in node.ai_thoughts
                 thoughts[player].add(personality)
             assert len(thoughts["B"]) == 1 and len(thoughts["W"]) == 1  # the same all game
-            assert thoughts["B"] != thoughts["W"]
+            # rolled separately (with zeros common they can match by chance, so not compared here)
+            assert game.ai_personalities["B"] is not game.ai_personalities["W"]
             assert set(game.ai_personalities) == {"B", "W"}
         finally:
             shutdown_human_model_engine(katrain)
