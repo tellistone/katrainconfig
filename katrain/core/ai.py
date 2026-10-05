@@ -25,7 +25,9 @@ from katrain.core.constants import (
     AI_POLICY,
     AI_PRO,
     AI_RANDOM_HUMAN,
+    AI_RANDOM_HUMAN_NEVER_ZERO,
     AI_RANDOM_HUMAN_RANGES,
+    AI_RANDOM_HUMAN_ZERO_CHANCE,
     AI_RANK,
     AI_SCORELOSS,
     AI_SCORELOSS_ELO,
@@ -1086,11 +1088,14 @@ class CalibratedHumanStrategy(HumanModelStrategy):
 
 
 def random_human_personality(game: Game, player: str) -> Dict:
-    """Random Ranked Human's hidden options for this player, rolled once per game so each AI player differs"""
+    """Random Ranked Human's hidden options for this player, rolled once per game so each AI player has its own"""
     personalities = game.ai_personalities
     if player not in personalities:
         personalities[player] = {
-            k: random.randint(round(lo * 10), round(hi * 10)) / 10 for k, (lo, hi) in AI_RANDOM_HUMAN_RANGES.items()
+            k: 0.0
+            if k not in AI_RANDOM_HUMAN_NEVER_ZERO and random.random() < AI_RANDOM_HUMAN_ZERO_CHANCE
+            else random.randint(round(lo * 10), round(hi * 10)) / 10
+            for k, (lo, hi) in AI_RANDOM_HUMAN_RANGES.items()
         }
     return personalities[player]
 
@@ -1098,7 +1103,8 @@ def random_human_personality(game: Game, player: str) -> Dict:
 @register_strategy(AI_RANDOM_HUMAN)
 class RandomRankedHumanStrategy(CalibratedHumanStrategy):
     """Calibrated Human Style with a random personality: Simple Style's options and the dynamic score utility are
-    rolled for each AI player at the start of a game, and the human-like model plays at kyu_rank"""
+    rolled for each AI player at the start of a game (the Simple Style ones are often zero), and the human-like model
+    plays at kyu_rank"""
 
     # KataGo settings that would replace the personality's dynamic score utility or the rank the human-like model plays
     PERSONALITY_KATAGO_SETTINGS = ["dynamicScoreUtilityFactor", "humanSLProfile"]
