@@ -193,12 +193,7 @@
             "pro_year": 1914
         }
     },
-    "ai_katago": {
-        "ai:randomhuman": {
-            "winLossUtilityFactor": 0.7,
-            "playoutDoublingAdvantage": 0.6
-        }
-    },
+    "ai_katago": {},
     "ui_state": {
         "restoresize": true,
         "size": [],

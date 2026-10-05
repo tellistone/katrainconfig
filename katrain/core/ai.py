@@ -25,8 +25,10 @@ from katrain.core.constants import (
     AI_POLICY,
     AI_PRO,
     AI_RANDOM_HUMAN,
+    AI_RANDOM_HUMAN_MAX_WIN_LOSS_UTILITY,
     AI_RANDOM_HUMAN_NEVER_ZERO,
     AI_RANDOM_HUMAN_RANGES,
+    AI_RANDOM_HUMAN_UTILITY_TOTAL,
     AI_RANDOM_HUMAN_ZERO_CHANCE,
     AI_RANK,
     AI_SCORELOSS,
@@ -1091,23 +1093,33 @@ def random_human_personality(game: Game, player: str) -> Dict:
     """Random Ranked Human's hidden options for this player, rolled once per game so each AI player has its own"""
     personalities = game.ai_personalities
     if player not in personalities:
-        personalities[player] = {
+        personality = {
             k: 0.0
             if k not in AI_RANDOM_HUMAN_NEVER_ZERO and random.random() < AI_RANDOM_HUMAN_ZERO_CHANCE
             else random.randint(round(lo * 10), round(hi * 10)) / 10
             for k, (lo, hi) in AI_RANDOM_HUMAN_RANGES.items()
         }
+        win_loss = round(AI_RANDOM_HUMAN_UTILITY_TOTAL - personality["dynamic_score_utility"], 1)
+        personality["win_loss_utility"] = min(win_loss, AI_RANDOM_HUMAN_MAX_WIN_LOSS_UTILITY)
+        personalities[player] = personality
     return personalities[player]
 
 
 @register_strategy(AI_RANDOM_HUMAN)
 class RandomRankedHumanStrategy(CalibratedHumanStrategy):
-    """Calibrated Human Style with a random personality: Simple Style's options and the dynamic score utility are
-    rolled for each AI player at the start of a game (the Simple Style ones are often zero), and the human-like model
-    plays at kyu_rank"""
+    """Calibrated Human Style with a random personality: Simple Style's options, the dynamic score utility and the
+    playout doubling advantage are rolled for each AI player at the start of a game (all but the dynamic score utility
+    are often zero), the win/loss utility follows the dynamic score utility, and the human-like model plays at
+    kyu_rank"""
 
-    # KataGo settings that would replace the personality's dynamic score utility or the rank the human-like model plays
-    PERSONALITY_KATAGO_SETTINGS = ["dynamicScoreUtilityFactor", "humanSLProfile"]
+    # KataGo settings that would replace the personality or the rank the human-like model plays
+    PERSONALITY_KATAGO_SETTINGS = [
+        "dynamicScoreUtilityFactor",
+        "humanSLProfile",
+        "playoutDoublingAdvantage",
+        "playoutDoublingAdvantagePla",  # would give the rolled advantage to a fixed colour, not the AI
+        "winLossUtilityFactor",
+    ]
 
     def __init__(self, game: Game, ai_settings: Dict, *args, **kwargs):
         super().__init__(game, ai_settings, *args, **kwargs)
@@ -1121,6 +1133,13 @@ class RandomRankedHumanStrategy(CalibratedHumanStrategy):
     def use_personality(self):
         self.personality = random_human_personality(self.game, self.cn.next_player)
         self.settings = {**self.settings, **self.personality, "human_kyu_rank": self.settings["kyu_rank"]}
+
+    def own_search_settings(self) -> Dict:
+        return {
+            **super().own_search_settings(),
+            "playoutDoublingAdvantage": self.settings["playout_doubling_advantage"],
+            "winLossUtilityFactor": self.settings["win_loss_utility"],
+        }
 
     def generate_move(self) -> Tuple[Move, str]:
         self.use_personality()

@@ -117,13 +117,18 @@ AI_STRENGTH = {  # dan ranks, backup if model is missing. TODO: remove some?
 # Random Ranked Human's hidden options, rolled to one decimal place for each AI player in each game.
 AI_RANDOM_HUMAN_RANGES = {
     "attach_penalty": (-2.0, 2.0),
-    "dynamic_score_utility": (0.5, 1.0),
+    "dynamic_score_utility": (0.1, 1.0),
     "opponent_fac": (-1.0, 1.0),
     "settled_weight": (-0.3, 1.0),
     "tenuki_penalty": (-3.0, 3.0),
+    "playout_doubling_advantage": (-0.5, 0.5),
 }
 AI_RANDOM_HUMAN_ZERO_CHANCE = 0.5  # each option is zero this often instead of rolled, except these
 AI_RANDOM_HUMAN_NEVER_ZERO = {"dynamic_score_utility"}
+AI_RANDOM_HUMAN_UTILITY_TOTAL = 1.3  # win/loss utility is this minus the rolled dynamic score utility
+AI_RANDOM_HUMAN_MAX_WIN_LOSS_UTILITY = 1.0  # capped at the most KataGo accepts
+# Random Ranked Human's KataGo settings before they became part of its personality, dropped from existing configs
+AI_RANDOM_HUMAN_OLD_KATAGO_DEFAULTS = {"winLossUtilityFactor": 0.7, "playoutDoublingAdvantage": 0.6}
 
 AI_OPTION_VALUES = {
     "kyu_rank": [(k, f"{k}[strength:kyu]") for k in range(15, 0, -1)]

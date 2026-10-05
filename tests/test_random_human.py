@@ -9,8 +9,11 @@ from katrain.core.base_katrain import KaTrainBase
 from katrain.core.constants import (
     AI_CALIBRATED_HUMAN,
     AI_RANDOM_HUMAN,
+    AI_RANDOM_HUMAN_MAX_WIN_LOSS_UTILITY,
     AI_RANDOM_HUMAN_NEVER_ZERO,
+    AI_RANDOM_HUMAN_OLD_KATAGO_DEFAULTS,
     AI_RANDOM_HUMAN_RANGES,
+    AI_RANDOM_HUMAN_UTILITY_TOTAL,
     AI_RANDOM_HUMAN_ZERO_CHANCE,
     AI_STRATEGIES,
     AI_STRATEGIES_RECOMMENDED_ORDER,
@@ -27,6 +30,7 @@ HIDDEN = {
     "settled_weight",
     "tenuki_penalty",
 }
+ROLLED_KATAGO = {"playout_doubling_advantage", "win_loss_utility"}  # KataGo settings, not AI settings
 
 
 def fake_game(next_player="B"):
@@ -54,35 +58,48 @@ class TestRandomHuman:
             "pick_weighting": 0.3,
             "static_score_utility": 0.5,
         }
-        katago = katrain.config(f"{KATAGO_SETTINGS_CONFIG_SECTION}/{AI_RANDOM_HUMAN}")
-        assert katago == {"winLossUtilityFactor": 0.7, "playoutDoublingAdvantage": 0.6}
-        assert clean_katago_overrides(katago) == katago  # valid KataGo settings
+        # winLossUtilityFactor and playoutDoublingAdvantage are now in the personality
+        assert katrain.config(f"{KATAGO_SETTINGS_CONFIG_SECTION}/{AI_RANDOM_HUMAN}", {}) == {}
+        assert clean_katago_overrides(AI_RANDOM_HUMAN_OLD_KATAGO_DEFAULTS) == AI_RANDOM_HUMAN_OLD_KATAGO_DEFAULTS
         assert AI_RANDOM_HUMAN in AI_STRATEGIES and AI_RANDOM_HUMAN in AI_STRATEGIES_RECOMMENDED_ORDER
         assert ai_rank_estimation(AI_RANDOM_HUMAN, settings) == -12  # 13k
 
-    def test_katago_defaults_for_existing_configs(self):
+    def test_old_katago_defaults_dropped_from_existing_configs(self):
         katrain = KaTrainBase(force_package_config=True, debug_level=0)
-        katrain._config.pop(KATAGO_SETTINGS_CONFIG_SECTION)  # a config from before these defaults
-        katrain._add_missing_ai_settings()
-        assert katrain.config(f"{KATAGO_SETTINGS_CONFIG_SECTION}/{AI_RANDOM_HUMAN}")["winLossUtilityFactor"] == 0.7
-        katrain._config[KATAGO_SETTINGS_CONFIG_SECTION][AI_RANDOM_HUMAN] = {}  # the user cleared them
+        section = katrain._config.setdefault(KATAGO_SETTINGS_CONFIG_SECTION, {})
+        section[AI_RANDOM_HUMAN] = dict(AI_RANDOM_HUMAN_OLD_KATAGO_DEFAULTS)  # a config from PR 6 or 7
         katrain._add_missing_ai_settings()
         assert katrain.config(f"{KATAGO_SETTINGS_CONFIG_SECTION}/{AI_RANDOM_HUMAN}") == {}
+        own = {"winLossUtilityFactor": 0.7, "playoutDoublingAdvantage": 0.6, "cpuctExploration": 2.0}
+        katrain._config[KATAGO_SETTINGS_CONFIG_SECTION][AI_RANDOM_HUMAN] = dict(own)  # changed by the user: kept
+        katrain._add_missing_ai_settings()
+        assert katrain.config(f"{KATAGO_SETTINGS_CONFIG_SECTION}/{AI_RANDOM_HUMAN}") == own
         katrain._config[KATAGO_SETTINGS_CONFIG_SECTION] = "corrupt"
         katrain._add_missing_ai_settings()
-        assert katrain.config(f"{KATAGO_SETTINGS_CONFIG_SECTION}/{AI_RANDOM_HUMAN}")["winLossUtilityFactor"] == 0.7
+        assert katrain.config(KATAGO_SETTINGS_CONFIG_SECTION) == {}
 
     def test_personality_ranges(self, monkeypatch):
-        assert set(AI_RANDOM_HUMAN_RANGES) | {"human_kyu_rank"} == HIDDEN
+        assert set(AI_RANDOM_HUMAN_RANGES) | {"human_kyu_rank", "win_loss_utility"} == HIDDEN | ROLLED_KATAGO
         assert AI_RANDOM_HUMAN_RANGES == {
             "attach_penalty": (-2.0, 2.0),
-            "dynamic_score_utility": (0.5, 1.0),
+            "dynamic_score_utility": (0.1, 1.0),
             "opponent_fac": (-1.0, 1.0),
             "settled_weight": (-0.3, 1.0),
             "tenuki_penalty": (-3.0, 3.0),
+            "playout_doubling_advantage": (-0.5, 0.5),
         }
         assert AI_RANDOM_HUMAN_ZERO_CHANCE == 0.5 and AI_RANDOM_HUMAN_NEVER_ZERO == {"dynamic_score_utility"}
+        assert AI_RANDOM_HUMAN_UTILITY_TOTAL == 1.3 and AI_RANDOM_HUMAN_MAX_WIN_LOSS_UTILITY == 1.0
         rolls = [random_human_personality(fake_game(), "B") for _ in range(2000)]
+        for p in rolls:  # rolled first, then win/loss utility follows it, to one decimal place, at most KataGo's 1
+            assert list(p) == list(AI_RANDOM_HUMAN_RANGES) + ["win_loss_utility"]
+            assert p["win_loss_utility"] == min(1.0, round(1.3 - p["dynamic_score_utility"], 1))
+            search = {
+                "winLossUtilityFactor": p["win_loss_utility"],
+                "playoutDoublingAdvantage": p["playout_doubling_advantage"],
+            }
+            assert clean_katago_overrides(search) == search  # within what KataGo accepts
+        assert {p["win_loss_utility"] for p in rolls} == {x / 10 for x in range(3, 11)}
         for k, (lo, hi) in AI_RANDOM_HUMAN_RANGES.items():
             values = [p[k] for p in rolls]
             assert all(v == 0 or (lo <= v <= hi and round(v, 1) == v) for v in values)
@@ -94,11 +111,14 @@ class TestRandomHuman:
                 assert abs(zeros - (0.5 + 0.5 * rolled)) < 0.06
         zeroable = set(AI_RANDOM_HUMAN_RANGES) - AI_RANDOM_HUMAN_NEVER_ZERO
         all_zero = sum(all(p[k] == 0 for k in zeroable) for p in rolls)
-        assert all_zero < 400  # each option gets its own 50% chance, not one chance for all of them (~140 expected)
+        assert all_zero < 200  # each option gets its own 50% chance, not one chance for all of them (~80 expected)
         for chance, pick, expected in [(0.49, min, "zero"), (0.5, min, "lo"), (0.99, max, "hi")]:
             monkeypatch.setattr(random, "random", lambda chance=chance: chance)
             monkeypatch.setattr(random, "randint", lambda a, b, pick=pick: pick(a, b))
-            for k, v in random_human_personality(fake_game(), "B").items():
+            personality = random_human_personality(fake_game(), "B")
+            win_loss = personality.pop("win_loss_utility")
+            assert win_loss == (0.3 if expected == "hi" else 1.0)  # dynamic score utility 1.0, or 0.1 and capped
+            for k, v in personality.items():
                 lo, hi = AI_RANDOM_HUMAN_RANGES[k]
                 if expected == "zero" and k not in AI_RANDOM_HUMAN_NEVER_ZERO:
                     assert v == 0.0
@@ -127,6 +147,9 @@ class TestRandomHuman:
         assert search["humanSLProfile"] == "rank_7k"
         assert search["dynamicScoreUtilityFactor"] == strategy.personality["dynamic_score_utility"]
         assert search["staticScoreUtilityFactor"] == 0.5
+        assert search["playoutDoublingAdvantage"] == strategy.personality["playout_doubling_advantage"]
+        assert search["winLossUtilityFactor"] == strategy.personality["win_loss_utility"]
+        assert search["winLossUtilityFactor"] == min(1.0, round(1.3 - search["dynamicScoreUtilityFactor"], 1))
 
     def test_reported_in_thoughts(self, monkeypatch):
         from katrain.core.ai import CalibratedHumanStrategy
@@ -139,15 +162,25 @@ class TestRandomHuman:
             "opponent_fac": 0.5,
             "settled_weight": -0.3,
             "tenuki_penalty": 0.0,
+            "playout_doubling_advantage": -0.5,
+            "win_loss_utility": 0.3,
         }
         move, thoughts = RandomRankedHumanStrategy(game, {"kyu_rank": 4.0}).generate_move()
         assert thoughts == (
             "Personality: attach penalty -2.0, dynamic score utility 1.0, opponent fac 0.5, settled weight -0.3, "
-            "tenuki penalty 0.0, human kyu rank 4 (rank_4k). Thoughts."
+            "tenuki penalty 0.0, playout doubling advantage -0.5, win loss utility 0.3, human kyu rank 4 (rank_4k). "
+            "Thoughts."
         )
 
     def test_katago_settings_keep_the_personality(self):
-        katago = {"dynamicScoreUtilityFactor": 0.0, "humanSLProfile": "rank_9d", "cpuctExploration": 2.0}
+        katago = {
+            "dynamicScoreUtilityFactor": 0.0,
+            "humanSLProfile": "rank_9d",
+            "playoutDoublingAdvantage": 1.0,
+            "winLossUtilityFactor": 0.1,
+            "playoutDoublingAdvantagePla": "B",
+            "cpuctExploration": 2.0,
+        }
         strategy = RandomRankedHumanStrategy(fake_game(), {"kyu_rank": 4, "static_score_utility": 0.5}, katago)
         assert strategy.katago_overrides == {"cpuctExploration": 2.0}
         assert strategy.katago_settings == {"cpuctExploration": 2.0}
@@ -166,8 +199,13 @@ class TestRandomHuman:
         engine = KataGoEngine(katrain, katrain.config("engine"))
         game = Game(katrain, engine)
         settings = katrain.config(f"ai/{AI_RANDOM_HUMAN}")
-        katago = katrain.config(f"{KATAGO_SETTINGS_CONFIG_SECTION}/{AI_RANDOM_HUMAN}")
+        katago = {"cpuctExploration": 1.0}
         thoughts = {"B": set(), "W": set()}
+        # Black gets the extremes KataGo must accept, White a random roll
+        game.ai_personalities["B"] = {
+            **{k: lo for k, (lo, hi) in AI_RANDOM_HUMAN_RANGES.items()},
+            "win_loss_utility": 1.0,
+        }
         try:
             for _ in range(6):
                 player = game.current_node.next_player
@@ -177,7 +215,8 @@ class TestRandomHuman:
                 personality = node.ai_thoughts.split(". ")[0]
                 assert personality.startswith("Personality: attach penalty ")
                 assert "human kyu rank 13 (rank_13k). Human-like model at rank_13k." in node.ai_thoughts
-                assert "winLossUtilityFactor=0.7, playoutDoublingAdvantage=0.6" in node.ai_thoughts
+                assert "KataGo settings: cpuctExploration=1.0" in node.ai_thoughts
+                assert "failed" not in node.ai_thoughts  # KataGo took every setting
                 thoughts[player].add(personality)
             assert len(thoughts["B"]) == 1 and len(thoughts["W"]) == 1  # the same all game
             # rolled separately (with zeros common they can match by chance, so not compared here)
