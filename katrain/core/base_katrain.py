@@ -8,6 +8,8 @@ from kivy.storage.jsonstore import JsonStore
 from katrain.core.ai import ai_rank_estimation
 from katrain.core.constants import (
     AI_DEFAULT,
+    AI_RANDOM_HUMAN,
+    AI_RANDOM_HUMAN_OLD_KATAGO_DEFAULTS,
     CONFIG_MIN_VERSION,
     DATA_FOLDER,
     OUTPUT_DEBUG,
@@ -170,6 +172,8 @@ class KaTrainBase:
         for strategy, defaults in package_katago.items():
             if not isinstance(user_katago.get(strategy), dict):
                 user_katago[strategy] = dict(defaults)
+        if user_katago.get(AI_RANDOM_HUMAN) == AI_RANDOM_HUMAN_OLD_KATAGO_DEFAULTS:  # now rolled in its personality
+            user_katago[AI_RANDOM_HUMAN] = {}
 
     def save_config(self, key=None):
         if key is None:
